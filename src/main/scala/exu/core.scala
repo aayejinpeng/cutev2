@@ -1066,6 +1066,11 @@ class BoomCore()(implicit p: Parameters) extends BoomModule
   csr.io.cause     := RegNext(rob.io.com_xcpt.bits.cause)
   csr.io.ungated_clock := clock
 
+  val ygjk_badvaddr = RegInit(0.U(vaddrBits.W))
+  when(io.rocc.interrupt){
+    ygjk_badvaddr := io.rocc.badvaddr_ygjk
+  }
+
   val tval_valid = csr.io.exception &&
     csr.io.cause.isOneOf(
       //Causes.illegal_instruction.U, we currently only write 0x0 for illegal instructions
@@ -1080,7 +1085,7 @@ class BoomCore()(implicit p: Parameters) extends BoomModule
       Causes.fetch_page_fault.U)
 
   csr.io.tval := Mux(tval_valid,
-    RegNext(encodeVirtualAddress(rob.io.com_xcpt.bits.badvaddr, rob.io.com_xcpt.bits.badvaddr)), 0.U)
+    encodeVirtualAddress(rob.io.com_xcpt.bits.badvaddr, rob.io.com_xcpt.bits.badvaddr), Mux(csr.io.cause === "h800000000000000c".U, ygjk_badvaddr, 0.U))
 
   // TODO move this function to some central location (since this is used elsewhere).
   def encodeVirtualAddress(a0: UInt, ea: UInt) =
@@ -1137,6 +1142,7 @@ class BoomCore()(implicit p: Parameters) extends BoomModule
   for (w <- 0 until exe_units.length) {
     val exe_unit = exe_units(w)
     if (exe_unit.readsIrf) {
+    //这里赋值！
       exe_unit.io.req <> iregister_read.io.exe_reqs(iss_idx)
 
       if (exe_unit.bypassable) {
@@ -1403,6 +1409,7 @@ class BoomCore()(implicit p: Parameters) extends BoomModule
 
   // detect pipeline freezes and throw error
   val idle_cycles = freechips.rocketchip.util.WideCounter(32)
+  val out_idle_cycles = RegNext(idle_cycles.value)
   when (rob.io.commit.valids.asUInt.orR ||
         csr.io.csr_stall ||
         io.rocc.busy ||

@@ -129,6 +129,9 @@ class BoomTile private(
   // DCache
   lazy val dcache: BoomNonBlockingDCache = LazyModule(new BoomNonBlockingDCache(staticIdForMetadataUseOnly))
   val dCacheTap = TLIdentityNode()
+  //tileParams.dcache.get.rowBits/8
+  println(s"[yjp_debug] tileParams.dcache.get.rowBits = ${tileParams.dcache.get.rowBits}")
+  println(s"[yjp_debug] dcache.node = ${dcache.node}")
   tlMasterXbar.node := dCacheTap := TLWidthWidget(tileParams.dcache.get.rowBits/8) := visibilityNode := dcache.node
 
 
@@ -179,9 +182,10 @@ class BoomTileModuleImp(outer: BoomTile) extends BaseTileModuleImp(outer){
 
   // RoCC
   if (outer.roccs.size > 0) {
-    val (respArb, cmdRouter) = {
+    val (respArb, cmdRouter,missAddr_ygjk) = {
       val respArb = Module(new RRArbiter(new RoCCResponse()(outer.p), outer.roccs.size))
       val cmdRouter = Module(new RoccCommandRouter(outer.roccs.map(_.opcodes))(outer.p))
+      val missAddr_ygjk = WireInit(0.U(vaddrBits.W))
       outer.roccs.zipWithIndex.foreach { case (rocc, i) =>
         ptwPorts ++= rocc.module.io.ptw
         rocc.module.io.cmd <> cmdRouter.io.out(i)
@@ -189,6 +193,10 @@ class BoomTileModuleImp(outer: BoomTile) extends BaseTileModuleImp(outer){
         dcIF.io.requestor <> rocc.module.io.mem
         hellaCachePorts += dcIF.io.cache
         respArb.io.in(i) <> Queue(rocc.module.io.resp)
+
+    when(rocc.module.io.interrupt){
+          missAddr_ygjk := rocc.module.io.badvaddr_ygjk
+        }
       }
       // Create this FPU just for RoCC
       val nFPUPorts = outer.roccs.filter(_.usesFPU).size
@@ -214,7 +222,7 @@ class BoomTileModuleImp(outer: BoomTile) extends BaseTileModuleImp(outer){
           fpArb.io.out_resp <> fpu.io.cp_resp
         }
       }
-      (respArb, cmdRouter)
+      (respArb, cmdRouter, missAddr_ygjk)
     }
 
     cmdRouter.io.in <> core.io.rocc.cmd
@@ -222,6 +230,7 @@ class BoomTileModuleImp(outer: BoomTile) extends BaseTileModuleImp(outer){
     core.io.rocc.resp <> respArb.io.out
     core.io.rocc.busy <> (cmdRouter.io.busy || outer.roccs.map(_.module.io.busy).reduce(_||_))
     core.io.rocc.interrupt := outer.roccs.map(_.module.io.interrupt).reduce(_||_)
+    core.io.rocc.badvaddr_ygjk := missAddr_ygjk
   }
 
   // PTW

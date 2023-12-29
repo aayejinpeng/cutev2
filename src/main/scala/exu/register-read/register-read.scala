@@ -121,6 +121,13 @@ class RegisterRead(
 
     if (enableSFBOpt) io.prf_read_ports(w).addr := pred_addr
 
+    //readports = 2
+    //对于rrd_rs1_data_0 从rf_read_ports(0)中取
+    //对于rrd_rs2_data_0 从rf_read_ports(1)中取
+    //对于rrd_rs1_data_1 从rf_read_ports(2)中取
+    //对于rrd_rs2_data_1 从rf_read_ports(3)中取
+    //Mux(RegNext(rs1_addr === 0.U), 0.U, io.rf_read_ports(idx+0).data)的功能是
+    //依据上一周期的rs1_addr来判断是否需要从rf_read_ports(idx+0).data中取数据
     if (numReadPorts > 0) rrd_rs1_data(w) := Mux(RegNext(rs1_addr === 0.U), 0.U, io.rf_read_ports(idx+0).data)
     if (numReadPorts > 1) rrd_rs2_data(w) := Mux(RegNext(rs2_addr === 0.U), 0.U, io.rf_read_ports(idx+1).data)
     if (numReadPorts > 2) rrd_rs3_data(w) := Mux(RegNext(rs3_addr === 0.U), 0.U, io.rf_read_ports(idx+2).data)

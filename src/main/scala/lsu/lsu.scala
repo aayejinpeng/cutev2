@@ -1253,6 +1253,7 @@ class LSU(implicit p: Parameters, edge: TLEdgeOut) extends BoomModule()(p)
                                     stq_commit_e.bits.uop.mem_size, 0.U,
                                     stq_commit_e.bits.data.bits,
                                     coreDataBytes)).data
+                                    // xLen/8)).data
       dmem_req(w).bits.uop      := stq_commit_e.bits.uop
 
      stq_execute_head                     := Mux(dmem_req_fire(w),
@@ -1930,10 +1931,12 @@ class LSU(implicit p: Parameters, edge: TLEdgeOut) extends BoomModule()(p)
       val storegen = new freechips.rocketchip.rocket.StoreGen(
                                 stq_e.bits.uop.mem_size, stq_e.bits.addr.bits,
                                 stq_e.bits.data.bits, coreDataBytes)
+                            // stq_e.bits.data.bits, xLen/8)
       val loadgen  = new freechips.rocketchip.rocket.LoadGen(
                                 forward_uop.mem_size, forward_uop.mem_signed,
                                 wb_forward_ld_addr(w),
                                 storegen.data, false.B, coreDataBytes)
+                                // storegen.data, false.B, xLen/8)
 
       io.core.exe(w).iresp.valid := (forward_uop.dst_rtype === RT_FIX) && data_ready && live
       io.core.exe(w).fresp.valid := (forward_uop.dst_rtype === RT_FLT) && data_ready && live
@@ -2053,8 +2056,11 @@ class LSU(implicit p: Parameters, edge: TLEdgeOut) extends BoomModule()(p)
         val addr   = Mux(commit_store, stq(idx).bits.addr.bits, ldq(idx).bits.addr.bits)
         val stdata = Mux(commit_store, stq(idx).bits.data.bits, 0.U)
         val wbdata = Mux(commit_store, stq(idx).bits.debug_wb_data, ldq(idx).bits.debug_wb_data)
-        printf("MT %x %x %x %x %x %x %x\n",
-          io.core.tsc_reg, uop.uopc, uop.mem_cmd, uop.mem_size, addr, stdata, wbdata)
+        val isvector = Mux(commit_store, stq(idx).bits.isVector, ldq(idx).bits.isVector)
+        val debug_pc = Mux(commit_store, stq(idx).bits.uop.debug_pc, ldq(idx).bits.uop.debug_pc)
+        val inst = Mux(commit_store, stq(idx).bits.uop.inst, ldq(idx).bits.uop.inst)
+        printf("MT %x %x %x %x %x %x %x %x %x %x\n",
+          io.core.tsc_reg, uop.uopc, uop.mem_cmd, uop.mem_size, addr, stdata, wbdata, isvector, debug_pc, inst)
       }
     }
 

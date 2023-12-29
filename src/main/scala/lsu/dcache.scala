@@ -383,10 +383,25 @@ class BoomNonBlockingDCache(staticIdForMetadataUseOnly: Int)(implicit p: Paramet
   private val tileParams = p(TileKey)
   protected val cfg = tileParams.dcache.get
 
-  protected def cacheClientParameters = cfg.scratch.map(x => Seq()).getOrElse(Seq(TLMasterParameters.v1(
+  protected def cacheClientParameters = {
+    println(s"[yjp_debug] BoomNonBlockingDCache: cacheClientParameters")
+    println(s"[yjp_debug] BoomNonBlockingDCache: cfg = ${cfg}")
+    //cfg.blockBytes
+    println(s"[yjp_debug] BoomNonBlockingDCache: cfg.blockBytes = ${cfg.blockBytes}")
+    //TransferSizes(cfg.blockBytes, cfg.blockBytes)
+    println(s"[yjp_debug] BoomNonBlockingDCache: TransferSizes(cfg.blockBytes, cfg.blockBytes) = ${TransferSizes(cfg.blockBytes, cfg.blockBytes)}")
+    
+    val qqqwe = TLMasterParameters.v1(
     name          = s"Core ${staticIdForMetadataUseOnly} DCache",
     sourceId      = IdRange(0, 1 max (cfg.nMSHRs + 1)),
-    supportsProbe = TransferSizes(cfg.blockBytes, cfg.blockBytes))))
+    supportsProbe = TransferSizes(cfg.blockBytes, cfg.blockBytes))
+
+    println(s"[yjp_debug] BoomNonBlockingDCache: qqqwe = ${qqqwe}")
+
+    cfg.scratch.map(x => Seq()).getOrElse(Seq(TLMasterParameters.v1(
+    name          = s"Core ${staticIdForMetadataUseOnly} DCache",
+    sourceId      = IdRange(0, 1 max (cfg.nMSHRs + 1)),
+    supportsProbe = TransferSizes(cfg.blockBytes, cfg.blockBytes))))}
 
   protected def mmioClientParameters = Seq(TLMasterParameters.v1(
     name          = s"Core ${staticIdForMetadataUseOnly} DCache MMIO",
@@ -458,6 +473,7 @@ class BoomNonBlockingDCacheModule(outer: BoomNonBlockingDCache) extends LazyModu
   metaWriteArb.io.out.ready := meta.map(_.io.write.ready).reduce(_||_)
 
   // data
+  //dataArray!
   val data = Module(if (boomParams.numDCacheBanks == 1) new BoomDuplicatedDataArray else new BoomBankedDataArray)
   val dataWriteArb = Module(new Arbiter(new L1DataWriteReq, 2))
   // 0 goes to pipeline, 1 goes to MSHR refills
@@ -480,6 +496,7 @@ class BoomNonBlockingDCacheModule(outer: BoomNonBlockingDCache) extends LazyModu
 
   io.lsu.req.ready := metaReadArb.io.in(4).ready && dataReadArb.io.in(2).ready
   metaReadArb.io.in(4).valid := io.lsu.req.valid
+  //2代表的是pipeline？
   dataReadArb.io.in(2).valid := io.lsu.req.valid
   for (w <- 0 until memWidth) {
     // Tag read for new requests
@@ -703,6 +720,7 @@ class BoomNonBlockingDCacheModule(outer: BoomNonBlockingDCache) extends LazyModu
   }
   assert(debug_sc_fail_cnt < 100.U, "L1DCache failed too many SCs in a row")
 
+//s2_data!
   val s2_data = Wire(Vec(memWidth, Vec(nWays, UInt(encRowBits.W))))
   for (i <- 0 until memWidth) {
     for (w <- 0 until nWays) {
