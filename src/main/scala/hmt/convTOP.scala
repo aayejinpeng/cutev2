@@ -2,7 +2,7 @@ package boom.acc
 
 import chisel3._
 import chisel3.util._
-import freechips.rocketchip.config._
+import org.chipsalliance.cde.config._
 import boom.exu.ygjk._
 
 class Withacc_CONV extends Config((site,here,up) => {  
@@ -16,13 +16,18 @@ class Withacc_CONV extends Config((site,here,up) => {
 
 class conv extends MyACCModule with HWParameters with YGJKParameters{
     
+    //ocPENum个TE
     val PEs = VecInit(Seq.fill(ocPENum)(Module(new PE).io))
+    //每个TE对应一个Abuffer
     val Abuffer = VecInit(Seq.fill(ocPENum)(Module(new PEAbuffer).io))
+    //一份Abroadcast和一份Ascratchpad
     val Abroadcast = Module(new A2PEbroadcast).io
     val AScratchpad = Module(new AScratchpad).io
+    //每个TE对应一个Bbuffer、Bbroadcast和BScratchpad，没有B的广播
     val Bbuffer = VecInit(Seq.fill(ocPENum)(Module(new PEBbuffer).io))
     val Bbroadcast = VecInit(Seq.fill(ocPENum)(Module(new B2PEbroadcast).io))
     val BScratchpad = VecInit(Seq.fill(ocPENum)(Module(new BScratchpad).io))
+    //每个TE对应一个Cbuffer和C2PE、CScratchpad
     val Cbuffer = VecInit(Seq.fill(ocPENum)(Module(new Cbuffer).io))
     val C2PE = VecInit(Seq.fill(ocPENum)(Module(new C2PE).io))
     val CScratchpad = VecInit(Seq.fill(ocPENum)(Module(new CScratchpad).io))
@@ -79,12 +84,14 @@ class conv extends MyACCModule with HWParameters with YGJKParameters{
     val Caddr = RegInit(0.U(addrWidth.W))
     val dataType = RegInit(0.U(3.W))
 
+//依据连续的n条设置指令，依次设置卷积的规模参数
+//指令配置部分开始
     when(config_i === 0.U && io.ctl.config.valid){
       running := true.B
       Aaddr_v := true.B
       Aaddr := io.ctl.config.bits.cfgData1
       ic_v := true.B
-      ic := io.ctl.config.bits.cfgData2   //除以icb后的值
+      ic := io.ctl.config.bits.cfgData2   //除以icb后的值，注意这个值！！
       config_i := 1.U
       printf(p"convTOP\n Aaddr ${io.ctl.config.bits.cfgData1} ic ${io.ctl.config.bits.cfgData2}")
     }.elsewhen(config_i === 1.U && io.ctl.config.valid){
@@ -385,6 +392,7 @@ class conv extends MyACCModule with HWParameters with YGJKParameters{
 //      case(c, i) => c.ocn.valid := start
     }
     CScratchpad.map(_.ocn.valid := config_i === 9.U)
+//指令配置部分结束
 
     PEs.zip(Abuffer).foreach { case(pe, a) => 
 //      pe.A2PE <> a.data2PE

@@ -2,7 +2,7 @@ package boom.acc
 
 import chisel3._
 import chisel3.util._
-import freechips.rocketchip.config._
+import org.chipsalliance.cde.config._
 import boom.exu.ygjk._
 
 //MAC32,一个32位数乘累加器，一个乘法延迟为MACLatency，icb次累加
@@ -171,10 +171,12 @@ class PE extends Module with HWParameters{
       dataType := io.datatype.bits
     }
 
+    //PE矩阵,PEHigh*PEWidth个MAC,这个其实是单个TE的配置
     val matrix32 = VecInit.tabulate(PEHigh, PEWidth){(x,y) => Module(new MAC32).io}
     val matrix16 = VecInit.tabulate(PEHigh, PEWidth){(x,y) => Module(new MAC16).io}
     val matrix8 = VecInit.tabulate(PEHigh, PEWidth){(x,y) => Module(new MAC8).io}
 
+    //结果队列
     val resq = RegInit(VecInit.tabulate(MACresq, PEHigh*PEWidth){(a,b) => 0.U(ALineDWidth.W)})
     val resq_vn = RegInit(0.U(log2Ceil(MACresq).W))
     val reshead = RegInit(0.U(log2Ceil(MACresq).W))

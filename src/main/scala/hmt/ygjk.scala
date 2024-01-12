@@ -3,12 +3,12 @@ package boom.exu.ygjk
 import chisel3._
 import chisel3.util._
 import boom.acc._
-import freechips.rocketchip.config.Parameters
+import org.chipsalliance.cde.config.Parameters
 import freechips.rocketchip.tile._ //for rocc
 import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.tilelink._
 import boom.common._
-import freechips.rocketchip.config._
+import org.chipsalliance.cde.config._
 
 
 class WithYGJKAccel extends Config((site,here,up) => {

@@ -2,7 +2,7 @@ package boom.exu.ygjk
 
 import chisel3._
 import chisel3.util._
-import freechips.rocketchip.config._
+import org.chipsalliance.cde.config._
 import boom.acc._
 
 trait YGJKParameters{
