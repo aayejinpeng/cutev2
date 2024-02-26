@@ -7,45 +7,39 @@ import org.chipsalliance.cde.config._
 import boom.exu.ygjk._
 
 trait HWParameters{
-    val ocPENum = 2
-//    val ocPENum = 2
-    val ohPENum = 1
+//Scaratchpad中保存的张量形状
+    val Tensor_M = 64
+    val Tensor_N = 64
+    val Tensor_K = 64
+//AScaratchpad中保存的张量形状为M*K
+//AScaratchpad的大小为Tenser_M * Tensor_K * ReduceWidthByte
+//需要考虑Scaratchpad的顺序读，需要考虑为Scaratchpad分bank
+    val AScratchpadSize = Tensor_M * Tensor_K * ReduceWidthByte //reduce
+    val BScratchpadSize = Tensor_N * Tensor_K * ReduceWidthByte //reduce
+    val CScratchpadSize = Tensor_M * Tensor_N * ResultWidthByte //result
+    val AScratchpadBank = 4 //注意这里与Matrix_M有强相关性，一般是Matrix_M的整数倍
+    val BScratchpadBank = 4 //这里与Matrix_N强相关
+    val CScratchpadBank = 4 //这里与Tensor_K强相关，同时读写任务～
 
-    val PEHigh = 4   //OW_BLOCK
-    val PEWidth = 4  //OC_BLOCK
-    val ocWidth = 10
-    val icWidth = 10
-    val ohWidth = 10
-    val owWidth = 10
-    val khWidth = 10
-    val kwWidth = 10
-    val ohbWidth = 10
-    val paddingWidth = 3
-    val strideWidth = 3
+//Matrix_M，代表TE执行的矩阵乘法的M的大小
+    val Matrix_M = 4
+//Matrix_N，代表TE执行的矩阵乘法的N的大小
+    val Matrix_N = 4
 
-//    val ALineDNum = 16  //A缓存中一行的数据个数，IC_BLOCK最大值
-    val ALineDNum = 4
-    val BICBNum = ALineDNum
-    val ALineDWidth = 32 //A缓存中数据的位宽
+//ReduceWidthByte 代表ReducePE进行内积时的数据宽度，单位是字节
+    val ReduceWidthByte = 32
+//ResultWidthByte 代表ReducePE的结果宽度，单位是字节
+    val ResultWidthByte = 4
 
-    val ADWidth = 32
-    val BDWidth = 32 //B缓存中数据的位宽
-    val CDWidth = 32 //C缓存中数据的位宽
 
-//    val CSPQEntry = 16
-    val CSPQEntry = 12   //需要和ASPIHEntry保持相同
-    val PrecWriteEntry = 8    //C模块中写回部件行数
-//    val BSPQEntry = 9
-    val BSPQEntry = 18
-//    val ASPIHEntry = 12
-    val ASPIHEntry = 12
-    val ASPIWEntry = 16   //iw计算在Scratchpad中的下标时需要对这个数取模，所以要是2的幂次
-//    val ASPIWEntry = 8   //iw计算在Scratchpad中的下标时需要对这个数取模，所以要是2的幂次
-
-    val MAC32Latency = 3
-    val MAC16Latency = 1
-    val MAC8Latency = 1
-    val MACresq = 8
+//MACLatency 用于ReducePE内的乘累加树的延迟描述
+    val MAC32TreeLevel = log2(ReduceWidthByte * 8 / 32)
+    val MAC32Latency = 3 //这是一个经验值，依据时序结果，填写的需要切分的流水段数量
+    val MAC16TreeLevel = log2(ReduceWidthByte * 8 / 16)
+    val MAC16Latency = 4
+    val MAC8TreeLevel = log2(ReduceWidthByte * 8 / 8)
+    val MAC8Latency = 5
+    //val MACresq = 8
 }
 
 //需要配置的信息：oc -- 控制器发来的oc编号, 
