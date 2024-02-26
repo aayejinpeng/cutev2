@@ -28,8 +28,10 @@ trait HWParameters{
 
 //ReduceWidthByte 代表ReducePE进行内积时的数据宽度，单位是字节
     val ReduceWidthByte = 32
+    val ReduceWidth = ReduceWidthByte * 8
 //ResultWidthByte 代表ReducePE的结果宽度，单位是字节
     val ResultWidthByte = 4
+    val ResultWidth = ResultWidthByte * 8
 
 
 //MACLatency 用于ReducePE内的乘累加树的延迟描述
@@ -46,7 +48,7 @@ trait HWParameters{
 //                ic, oh, ow, kh, kw, ohb -- 外层循环次数,
 //                icb -- 矩阵乘计算中的中间长度
 //                paddingH, paddingW, strideH, strideW -- 卷积层属性
-class ConfigPEIO extends Bundle with HWParameters with YGJKParameters{
+class ConfigInfoIO extends Bundle with HWParameters with YGJKParameters{
     val oc = Flipped(Valid(UInt(ocWidth.W)))               //对应reorder分块后的oc层循环次数
     val ic = Flipped(Valid(UInt(icWidth.W)))               //对应reorder分块后的ic层循环次数
     val ih = Flipped(Valid(UInt(ohWidth.W)))
@@ -67,4 +69,10 @@ class ConfigPEIO extends Bundle with HWParameters with YGJKParameters{
     val Caddr = Flipped(Valid(UInt(addrWidth.W))) //C矩阵首地址
     val dataType = Flipped(Valid(UInt(3.W)))  //1-32位，2-16位， 4-32位
 //    val idle = Output(Bool())
+}
+
+case object  ElementDataType extends Field[UInt]{
+    val DataTypeUInt32 = 1.U(3.W)
+    val DataTypeUInt16 = 2.U(3.W)
+    val DataTypeUInt8  = 4.U(3.W)
 }
