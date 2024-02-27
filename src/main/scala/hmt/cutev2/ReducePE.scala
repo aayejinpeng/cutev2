@@ -89,7 +89,7 @@ class ReducePE extends Module with HWParameters{
     
     //数据类型，整个计算过程中只有一个数据类型，ConfigInfo不会改变
     val dataType = RegInit(ElementDataType.DataTypeUndef)
-    
+
     //根据数据类型选择不同的ReduceMAC,作为CurrentResultD的数据源，由于configinfo不会改变，所以这里的DResult不用改变，并设置Valid信号
     val CurrentResultD = Wire(Valid(UInt(ResultWidth.W)))
     when(dataType===ElementDataType.DataTypeUInt8){
@@ -161,88 +161,6 @@ class ReducePE extends Module with HWParameters{
     //输出的ResultD什么时候能置valid？
     //ResultFIFO不为空时，才能置valid
     io.ResultD.valid := ResultFIFOValid
-
-    // //PE矩阵,PEHigh*PEWidth个MAC,这个其实是单个TE的配置
-    // val matrix32 = VecInit.tabulate(PEHigh, PEWidth){(x,y) => Module(new MAC32).io}
-    // val matrix16 = VecInit.tabulate(PEHigh, PEWidth){(x,y) => Module(new MAC16).io}
-    // val matrix8 = VecInit.tabulate(PEHigh, PEWidth){(x,y) => Module(new MAC8).io}
-
-    // //结果队列
-    // val resq = RegInit(VecInit.tabulate(MACresq, PEHigh*PEWidth){(a,b) => 0.U(ALineDWidth.W)})
-    // val resq_vn = RegInit(0.U(log2Ceil(MACresq).W))
-    // val reshead = RegInit(0.U(log2Ceil(MACresq).W))
-    // val restail = RegInit(0.U(log2Ceil(MACresq).W))
-    // val resqFull = reshead===(restail+1.U)(log2Ceil(MACresq)-1, 0)
-    
-    // //要保证AB数据同时握手
-    // io.A2PE.ready := Mux(dataType===1.U,matrix32(0)(0).Ain.ready && resq_vn < (MACresq-MAC32Latency).U && io.B2PE.valid, 
-    //                  Mux(dataType===2.U,matrix16(0)(0).Ain.ready && resq_vn < (MACresq-MAC16Latency).U &&  io.B2PE.valid, 
-    //                                     matrix8(0)(0).Ain.ready && resq_vn < (MACresq-MAC8Latency).U &&  io.B2PE.valid))   
-    // io.B2PE.ready := Mux(dataType===1.U,matrix32(0)(0).Bin.ready && resq_vn < (MACresq-MAC32Latency).U && io.A2PE.valid, 
-    //                  Mux(dataType===2.U,matrix16(0)(0).Bin.ready && resq_vn < (MACresq-MAC16Latency).U &&  io.A2PE.valid, 
-    //                                     matrix8(0)(0).Bin.ready && resq_vn < (MACresq-MAC8Latency).U &&  io.A2PE.valid))  
-    // for{
-    //   i <- 0 until PEHigh
-    //   j <- 0 until PEWidth
-    // } yield {
-    //   matrix32(i)(j).icb := io.icb
-    //   matrix32(i)(j).Ain.valid := io.A2PE.fire() && dataType===1.U
-    //   matrix32(i)(j).Ain.bits := io.A2PE.bits(i)
-    //   matrix32(i)(j).Bin.valid := io.B2PE.fire() && dataType===1.U
-    //   matrix32(i)(j).Bin.bits := io.B2PE.bits(j)
-    //   matrix32(i)(j).Cout.ready := !resqFull  && dataType===1.U
-
-    //   matrix16(i)(j).icb := io.icb
-    //   matrix16(i)(j).Ain.valid := io.A2PE.fire() && dataType===2.U
-    //   matrix16(i)(j).Ain.bits := io.A2PE.bits(i)
-    //   matrix16(i)(j).Bin.valid := io.B2PE.fire() && dataType===2.U
-    //   matrix16(i)(j).Bin.bits := Cat(io.B2PE.bits(j/2)((j&1)*16+15,(j&1)*16), io.B2PE.bits(j/2+2)((j&1)*16+15,(j&1)*16))
-    //   matrix16(i)(j).Cout.ready := !resqFull  && dataType===2.U
-
-    //   matrix8(i)(j).icb := io.icb
-    //   matrix8(i)(j).Ain.valid := io.A2PE.fire() && dataType===4.U
-    //   matrix8(i)(j).Ain.bits := io.A2PE.bits(i)
-    //   matrix8(i)(j).Bin.valid := io.B2PE.fire() && dataType===4.U
-    //   matrix8(i)(j).Bin.bits := Cat(Cat(io.B2PE.bits(0)(j*8+7, j*8), io.B2PE.bits(1)(j*8+7, j*8)), 
-    //                                 Cat(io.B2PE.bits(2)(j*8+7, j*8), io.B2PE.bits(3)(j*8+7, j*8)))
-    //   matrix8(i)(j).Cout.ready := !resqFull  && dataType===4.U
-    // }
-
-    // when(matrix32(0)(0).Cout.fire() || matrix16(0)(0).Cout.fire() || matrix8(0)(0).Cout.fire()){
-    //   for{
-    //     i <- 0 until PEHigh
-    //     j <- 0 until PEWidth
-    //   } yield {
-    //     resq(restail)(i*PEWidth+j) := Mux(dataType===1.U, matrix32(i)(j).Cout.bits,
-    //                                   Mux(dataType===2.U, matrix16(i)(j).Cout.bits, matrix8(i)(j).Cout.bits)) 
-    //   }
-    //   when(restail+1.U===MACresq.U){
-    //     restail := 0.U
-    //   }.otherwise{
-    //     restail := restail + 1.U
-    //   }
-    // }
-
-    // io.PE2C.valid := restail =/= reshead
-    // for{
-    //     i <- 0 until PEHigh
-    //     j <- 0 until PEWidth
-    // } yield {
-    //     io.PE2C.bits(i)(j) := resq(reshead)(i*PEWidth+j) 
-    // }
-    // when(io.PE2C.fire()){
-    //   when(reshead+1.U===MACresq.U){
-    //     reshead := 0.U
-    //   }.otherwise{
-    //     reshead := reshead + 1.U
-    //   }
-    // }
-
-    // when((matrix32(0)(0).Cout.fire() || matrix16(0)(0).Cout.fire() || matrix8(0)(0).Cout.fire()) && !io.PE2C.fire()){
-    //   resq_vn := resq_vn + 1.U
-    // }.elsewhen(!(matrix32(0)(0).Cout.fire() || matrix16(0)(0).Cout.fire() || matrix8(0)(0).Cout.fire()) && io.PE2C.fire()){
-    //   resq_vn := resq_vn - 1.U
-    // }
 
 }
 
