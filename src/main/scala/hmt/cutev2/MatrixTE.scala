@@ -6,253 +6,121 @@ import chisel3.util._
 import org.chipsalliance.cde.config._
 import boom.exu.ygjk._
 
-//MAC32,一个32位数乘累加器，一个乘法延迟为MACLatency，icb次累加
-class MAC32 extends Module with HWParameters{
+//MatrixTE
+//该模块的设计目标是，外积模块，组织多个ReducePE，来复用矩阵乘的数据，MatrixTE接受ABScarchPad的数据，交给broadcaster，生成数据馈送至至ReducePE，将Reduce的输出数据准备馈送至ScarchPadC。
+//计算上来看，它的输入是两个向量，将两个向量广播成两个相同大小的矩阵后，将元素送入ReducuPE。向量的大小也很明显其一是Matrix_M，其二是Matrix_N，向量内的元素宽度是Reduce_Width
+class MatrixTE extends Module with HWParameters{
     val io = IO(new Bundle{
-        val Ain = Flipped(DecoupledIO(UInt(ALineDWidth.W)))
-        val Bin = Flipped(DecoupledIO(UInt(ALineDWidth.W)))
-        val Cout = DecoupledIO(UInt(ALineDWidth.W))
-        val icb = Flipped(Valid(UInt(icWidth.W)))
+        val VectorA = Flipped(DecoupledIO(UInt((ReduceWidth*Matrix_N).W)))
+        val VectorB = Flipped(DecoupledIO(UInt((ReduceWidth*Matrix_M).W)))
+        val MatirxC = Flipped(DecoupledIO(UInt((ResultWidth*Matrix_M*Matrix_N).W)))
+        val MatrixD = DecoupledIO(UInt(ResultWidth.W))
+        val ConfigInfo = Flipped(DecoupledIO(new ConfigInfoIO))
     })
 
-    val icb = RegInit(0.U(icWidth.W))
-    val icbi = RegInit(0.U(icWidth.W))
-    val res = RegInit(VecInit(Seq.fill(2)(0.U(ALineDWidth.W))))
-    val res_v = RegInit(VecInit(Seq.fill(2)(false.B)))
-    val resfout = RegInit(0.U(1.W))
-    val resfmac = RegInit(0.U(1.W))
+    // val ReduceMAC8 = Module(new ReduceMACTree8)
+    // ReduceMAC8.io.AVector <> io.ReduceA
+    // ReduceMAC8.io.BVector <> io.ReduceB
+    // ReduceMAC8.io.CAdd    <> io.AddC
+    // ReduceMAC8.io.Chosen  := false.B
+    // ReduceMAC8.io.FIFOReady   := false.B
 
-    when(io.icb.valid){
-        icb := io.icb.bits
-    }
-//    printf(p"PE icbi $icbi\n")
+    // val ReduceMAC16 = Module(new ReduceMACTree16)
+    // ReduceMAC16.io.AVector <> io.ReduceA
+    // ReduceMAC16.io.BVector <> io.ReduceB
+    // ReduceMAC16.io.CAdd    <> io.AddC
+    // ReduceMAC16.io.Chosen  := false.B
+    // ReduceMAC16.io.FIFOReady   := false.B
 
-    io.Ain.ready := (res_v(0)^res_v(1) && icb - icbi > MAC32Latency.U) || !res_v.reduce(_|_) //在PE中保证valid信号同时来到
-    io.Bin.ready := (res_v(0)^res_v(1) && icb - icbi > MAC32Latency.U) || !res_v.reduce(_|_)
+    // val ReduceMAC32 = Module(new ReduceMACTree32)
+    // ReduceMAC32.io.AVector <> io.ReduceA
+    // ReduceMAC32.io.BVector <> io.ReduceB
+    // ReduceMAC32.io.CAdd    <> io.AddC
+    // ReduceMAC32.io.Chosen  := false.B
+    // ReduceMAC32.io.FIFOReady   := false.B
 
-    val addIn = Pipe(io.Ain.fire()&&io.Bin.fire(), io.Ain.bits*io.Bin.bits, MAC32Latency)
-    when(addIn.valid){
-      when(icbi+1.U===icb){
-        icbi := 0.U
-        res_v(resfmac) := true.B
-        resfmac := resfmac ^ 1.U
-      }.otherwise{
-        icbi := icbi + 1.U
-      }
-      res(resfmac) := res(resfmac) + addIn.bits
-    }
-
-    io.Cout.valid := res_v(resfout)
-    io.Cout.bits := res(resfout)
-    when(io.Cout.fire()){
-      res_v(resfout) := false.B
-      res(resfout) := 0.U
-      resfout := resfout ^ 1.U
-    }
-}
-
-//16位MAC，配合矩阵外积做A中同行连续两个16位和B中同列连续两个16位的数分别相乘再加(数据拼接由PE模块完成)，结果是一个32位数，icb和32位保持统一，实际是icb的2倍, 16位数乘1拍加1拍完成
-class MAC16 extends Module with HWParameters{
-    val io = IO(new Bundle{
-        val Ain = Flipped(DecoupledIO(UInt(ALineDWidth.W)))
-        val Bin = Flipped(DecoupledIO(UInt(ALineDWidth.W)))
-        val Cout = DecoupledIO(UInt(ALineDWidth.W))
-        val icb = Flipped(Valid(UInt(icWidth.W)))
-    })
-
-    val icb = RegInit(0.U(icWidth.W))
-    val icbi = RegInit(0.U(icWidth.W))
-    val res = RegInit(VecInit(Seq.fill(2)(0.U(ALineDWidth.W))))
-    val res_v = RegInit(VecInit(Seq.fill(2)(false.B)))
-    val resfout = RegInit(0.U(1.W))
-    val resfmac = RegInit(0.U(1.W))
-    val mulRes1 = RegInit(0.U(ALineDWidth.W))
-    val mulRes2 = RegInit(0.U(ALineDWidth.W))
-    val mulResV = RegInit(false.B)
-
-    when(io.icb.valid){
-        icb := io.icb.bits
-    }
-//    printf(p"PE icbi $icbi\n")
-
-    io.Ain.ready := (res_v(0)^res_v(1) && icb - icbi > MAC16Latency.U) || !res_v.reduce(_|_) //在PE中保证valid信号同时来到
-    io.Bin.ready := (res_v(0)^res_v(1) && icb - icbi > MAC16Latency.U) || !res_v.reduce(_|_)
-
-    mulRes1 := io.Ain.bits(ALineDWidth/2-1, 0) * io.Bin.bits(ALineDWidth-1, ALineDWidth/2)
-    mulRes2 := io.Ain.bits(ALineDWidth-1, ALineDWidth/2) * io.Bin.bits(ALineDWidth/2-1, 0)
-    mulResV := io.Ain.fire() && io.Bin.fire()
-    when(mulResV){
-      when(icbi+1.U===icb){
-        icbi := 0.U
-        res_v(resfmac) := true.B
-        resfmac := resfmac ^ 1.U
-      }.otherwise{
-        icbi := icbi + 1.U
-      }
-      res(resfmac) := res(resfmac) + mulRes1 + mulRes2
-    }
-
-    io.Cout.valid := res_v(resfout)
-    io.Cout.bits := res(resfout)
-    when(io.Cout.fire()){
-      res_v(resfout) := false.B
-      res(resfout) := 0.U
-      resfout := resfout ^ 1.U
-    }
-}
-
-//8位MAC，原理和16位一样，是4个数乘累加
-class MAC8 extends Module with HWParameters{
-    val io = IO(new Bundle{
-        val Ain = Flipped(DecoupledIO(UInt(ALineDWidth.W)))
-        val Bin = Flipped(DecoupledIO(UInt(ALineDWidth.W)))
-        val Cout = DecoupledIO(UInt(ALineDWidth.W))
-        val icb = Flipped(Valid(UInt(icWidth.W)))
-    })
-
-    val icb = RegInit(0.U(icWidth.W))
-    val icbi = RegInit(0.U(icWidth.W))
-    val res = RegInit(VecInit(Seq.fill(2)(0.U(ALineDWidth.W))))
-    val res_v = RegInit(VecInit(Seq.fill(2)(false.B)))
-    val resfout = RegInit(0.U(1.W))
-    val resfmac = RegInit(0.U(1.W))
-    val mulRes1 = RegInit(0.U(ALineDWidth.W))
-    val mulRes2 = RegInit(0.U(ALineDWidth.W))
-    val mulRes3 = RegInit(0.U(ALineDWidth.W))
-    val mulRes4 = RegInit(0.U(ALineDWidth.W))
-    val mulResV = RegInit(false.B)
-
-    when(io.icb.valid){
-        icb := io.icb.bits
-    }
-//    printf(p"PE icbi $icbi\n")
-
-    io.Ain.ready := (res_v(0)^res_v(1) && icb - icbi > MAC8Latency.U) || !res_v.reduce(_|_) //在PE中保证valid信号同时来到
-    io.Bin.ready := (res_v(0)^res_v(1) && icb - icbi > MAC8Latency.U) || !res_v.reduce(_|_)
-
-    mulRes1 := io.Ain.bits(ALineDWidth/4-1, 0) * io.Bin.bits(ALineDWidth-1, ALineDWidth/4*3)
-    mulRes2 := io.Ain.bits(ALineDWidth/2-1, ALineDWidth/4) * io.Bin.bits(ALineDWidth/4*3-1, ALineDWidth/2)
-    mulRes3 := io.Ain.bits(ALineDWidth/4*3-1, ALineDWidth/2) * io.Bin.bits(ALineDWidth/2-1, ALineDWidth/4)
-    mulRes4 := io.Ain.bits(ALineDWidth-1, ALineDWidth/4*3) * io.Bin.bits(ALineDWidth/4-1, 0)
-    mulResV := io.Ain.fire() && io.Bin.fire()
-    when(mulResV){
-      when(icbi+1.U===icb){
-        icbi := 0.U
-        res_v(resfmac) := true.B
-        resfmac := resfmac ^ 1.U
-      }.otherwise{
-        icbi := icbi + 1.U
-      }
-      res(resfmac) := res(resfmac) + mulRes1 + mulRes2 + mulRes3 + mulRes4
-    }
-
-    io.Cout.valid := res_v(resfout)
-    io.Cout.bits := res(resfout)
-    when(io.Cout.fire()){
-      res_v(resfout) := false.B
-      res(resfout) := 0.U
-      resfout := resfout ^ 1.U
-    }
-}
-
-//单个PE, 计算矩阵乘,计算A*B，+C在C供数模块处理
-class PE extends Module with HWParameters{
-    val io = IO(new Bundle{
-      val icb = Flipped(Valid(UInt(icWidth.W)))
-      val datatype = Flipped(Valid(UInt(3.W)))
-      val A2PE = Flipped(DecoupledIO(Vec(PEHigh,UInt(ALineDWidth.W))))
-      val B2PE = Flipped(DecoupledIO(Vec(PEWidth,UInt(ALineDWidth.W))))
-      val PE2C = DecoupledIO(Vec(PEHigh,Vec(PEWidth,UInt(ALineDWidth.W))))
-    })
-
-//    printf(p"PE A2PE ${io.A2PE.valid} ${io.A2PE.ready} Bin ${io.B2PE.valid} ${io.B2PE.ready} Cout ${io.PE2C.ready} ${io.PE2C.valid}\n")
-
-    val dataType = RegInit(0.U(3.W))
-    when(io.datatype.valid){
-      dataType := io.datatype.bits
-    }
-
-    //PE矩阵,PEHigh*PEWidth个MAC,这个其实是单个TE的配置
-    val matrix32 = VecInit.tabulate(PEHigh, PEWidth){(x,y) => Module(new MAC32).io}
-    val matrix16 = VecInit.tabulate(PEHigh, PEWidth){(x,y) => Module(new MAC16).io}
-    val matrix8 = VecInit.tabulate(PEHigh, PEWidth){(x,y) => Module(new MAC8).io}
-
-    //结果队列
-    val resq = RegInit(VecInit.tabulate(MACresq, PEHigh*PEWidth){(a,b) => 0.U(ALineDWidth.W)})
-    val resq_vn = RegInit(0.U(log2Ceil(MACresq).W))
-    val reshead = RegInit(0.U(log2Ceil(MACresq).W))
-    val restail = RegInit(0.U(log2Ceil(MACresq).W))
-    val resqFull = reshead===(restail+1.U)(log2Ceil(MACresq)-1, 0)
+    // //PE不工作且FIFO为空时，才能接受新的配置信息
+    // val PEWorking = RegInit(false.B)
+    // PEWorking = ReduceMAC8.io.working || ReduceMAC16.io.working || ReduceMAC32.io.working
+    // io.ConfigInfo.ready := !PEWorking && ResultFIFOEmpty
+    // when(io.ConfigInfo.fire()){
+    //   dataType := io.ConfigInfo.bits.dataType
+    // }
     
-    //要保证AB数据同时握手
-    io.A2PE.ready := Mux(dataType===1.U,matrix32(0)(0).Ain.ready && resq_vn < (MACresq-MAC32Latency).U && io.B2PE.valid, 
-                     Mux(dataType===2.U,matrix16(0)(0).Ain.ready && resq_vn < (MACresq-MAC16Latency).U &&  io.B2PE.valid, 
-                                        matrix8(0)(0).Ain.ready && resq_vn < (MACresq-MAC8Latency).U &&  io.B2PE.valid))   
-    io.B2PE.ready := Mux(dataType===1.U,matrix32(0)(0).Bin.ready && resq_vn < (MACresq-MAC32Latency).U && io.A2PE.valid, 
-                     Mux(dataType===2.U,matrix16(0)(0).Bin.ready && resq_vn < (MACresq-MAC16Latency).U &&  io.A2PE.valid, 
-                                        matrix8(0)(0).Bin.ready && resq_vn < (MACresq-MAC8Latency).U &&  io.A2PE.valid))  
-    for{
-      i <- 0 until PEHigh
-      j <- 0 until PEWidth
-    } yield {
-      matrix32(i)(j).icb := io.icb
-      matrix32(i)(j).Ain.valid := io.A2PE.fire() && dataType===1.U
-      matrix32(i)(j).Ain.bits := io.A2PE.bits(i)
-      matrix32(i)(j).Bin.valid := io.B2PE.fire() && dataType===1.U
-      matrix32(i)(j).Bin.bits := io.B2PE.bits(j)
-      matrix32(i)(j).Cout.ready := !resqFull  && dataType===1.U
+    // //数据类型，整个计算过程中只有一个数据类型，ConfigInfo不会改变
+    // val dataType = RegInit(ElementDataType.DataTypeUndef)
 
-      matrix16(i)(j).icb := io.icb
-      matrix16(i)(j).Ain.valid := io.A2PE.fire() && dataType===2.U
-      matrix16(i)(j).Ain.bits := io.A2PE.bits(i)
-      matrix16(i)(j).Bin.valid := io.B2PE.fire() && dataType===2.U
-      matrix16(i)(j).Bin.bits := Cat(io.B2PE.bits(j/2)((j&1)*16+15,(j&1)*16), io.B2PE.bits(j/2+2)((j&1)*16+15,(j&1)*16))
-      matrix16(i)(j).Cout.ready := !resqFull  && dataType===2.U
+    // //根据数据类型选择不同的ReduceMAC,作为CurrentResultD的数据源，由于configinfo不会改变，所以这里的DResult不用改变，并设置Valid信号
+    // val CurrentResultD = Wire(Valid(UInt(ResultWidth.W)))
+    // when(dataType===ElementDataType.DataTypeUInt8){
+    //     CurrentResultD <> ReduceMAC8.io.DResult
+    //     RedcueMAC8.io.Chosen := true.B
+    // }.elsewhen(dataType===ElementDataType.DataTypeUInt16){
+    //     CurrentResultD <> ReduceMAC16.io.DResult
+    //     ReduceMAC16.io.Chosen := true.B
+    // }.elsewhen(dataType===ElementDataType.DataTypeUInt32){
+    //     CurrentResultD <> ReduceMAC32.io.DResult
+    //     ReduceMAC32.io.Chosen := true.B
+    // }.otherwise{
+    //     CurrentResultD.valid := false.B
+    // }
 
-      matrix8(i)(j).icb := io.icb
-      matrix8(i)(j).Ain.valid := io.A2PE.fire() && dataType===4.U
-      matrix8(i)(j).Ain.bits := io.A2PE.bits(i)
-      matrix8(i)(j).Bin.valid := io.B2PE.fire() && dataType===4.U
-      matrix8(i)(j).Bin.bits := Cat(Cat(io.B2PE.bits(0)(j*8+7, j*8), io.B2PE.bits(1)(j*8+7, j*8)), 
-                                    Cat(io.B2PE.bits(2)(j*8+7, j*8), io.B2PE.bits(3)(j*8+7, j*8)))
-      matrix8(i)(j).Cout.ready := !resqFull  && dataType===4.U
-    }
+    
+    // //只有在数据类型匹配时才能进行计算
+    // //在Reduce内完成数据的握手，及所有数据准备好后才能进行计算，并用一个fifo保存ResultD，等待ResultD被握手
+    // val ResultFIFO = RegInit(VecInit(Seq.fill(ResultFIFODepth)(0.U(ResultWidth.W))))
+    // val ResultFIFOHead = RegInit(0.U(log2Ceil(ResultFIFODepth).W))
+    // val ResultFIFOTail = RegInit(0.U(log2Ceil(ResultFIFODepth).W))
+    // val ResultFIFOFull = ResultFIFOHead === (ResultFIFOTail + 1.U)(log2Ceil(ResultFIFODepth).W-1, 0)
+    // val ResultFIFOEmpty = ResultFIFOHead === ResultFIFOTail
+    // val ResultFIFOValid = RegInit(false.B)
 
-    when(matrix32(0)(0).Cout.fire() || matrix16(0)(0).Cout.fire() || matrix8(0)(0).Cout.fire()){
-      for{
-        i <- 0 until PEHigh
-        j <- 0 until PEWidth
-      } yield {
-        resq(restail)(i*PEWidth+j) := Mux(dataType===1.U, matrix32(i)(j).Cout.bits,
-                                      Mux(dataType===2.U, matrix16(i)(j).Cout.bits, matrix8(i)(j).Cout.bits)) 
-      }
-      when(restail+1.U===MACresq.U){
-        restail := 0.U
-      }.otherwise{
-        restail := restail + 1.U
-      }
-    }
+    // when(CurrentResultD.valid){
+    //   when(!ResultFIFOFull){
+    //     ResultFIFO(ResultFIFOTail) := CurrentResultD.bits
+    //     when(ResultFIFOTail+1.U===ResultFIFODepth.U){
+    //       ResultFIFOTail := 0.U
+    //     }.otherwise{
+    //       ResultFIFOTail := ResultFIFOTail + 1.U
+    //     }
+    //   }.otherwise{
+    //     // printf(p"ResultFIFOFull\n")
+    //   }
+    // }
 
-    io.PE2C.valid := restail =/= reshead
-    for{
-        i <- 0 until PEHigh
-        j <- 0 until PEWidth
-    } yield {
-        io.PE2C.bits(i)(j) := resq(reshead)(i*PEWidth+j) 
-    }
-    when(io.PE2C.fire()){
-      when(reshead+1.U===MACresq.U){
-        reshead := 0.U
-      }.otherwise{
-        reshead := reshead + 1.U
-      }
-    }
+    // when(io.ResultD.fire()){
+    //   when(ResultFIFOEmpty){
+    //     ResultFIFOValid := false.B
+    //   }.otherwise{
+    //     io.ResultD.bits := ResultFIFO(ResultFIFOHead)
+    //     ResultFIFOValid := true.B
+    //     when(ResultFIFOHead+1.U===ResultFIFODepth.U){
+    //       ResultFIFOHead := 0.U
+    //     }.otherwise{
+    //       ResultFIFOHead := ResultFIFOHead + 1.U
+    //     }
+    //   }
+    // }
 
-    when((matrix32(0)(0).Cout.fire() || matrix16(0)(0).Cout.fire() || matrix8(0)(0).Cout.fire()) && !io.PE2C.fire()){
-      resq_vn := resq_vn + 1.U
-    }.elsewhen(!(matrix32(0)(0).Cout.fire() || matrix16(0)(0).Cout.fire() || matrix8(0)(0).Cout.fire()) && io.PE2C.fire()){
-      resq_vn := resq_vn - 1.U
-    }
+    // //数据源ReduceA ReduceB AddC什么时候能置ready？
+    // //全部valid的时候才可以，同时当前流水下的所有数据都能在fifo中存的下，才能置ready
+    // //方案1:已知MACTree的流水线深度，已知ResultFIFO的深度，可以得出ResultFIFO存的数据达到某个深度时，可以安全的接受新的数据
+    // //方案2：直接用FIFO满没满确定是否ready，整体流水线都受这个制约，好像有点粗暴？只要ready，所有数据往下流一个流水级，否则不动
+    // val InputReady = ResultFIFOFull===false.B
+    // io.ReduceA.ready := InputReady
+    // io.ReduceB.ready := InputReady
+    // io.AddC.ready    := InputReady
+
+    // //什么时候能接让MacTree的数据输入到fifo？
+    // //MacTree的数据输入到fifo的时候，fifo不满，且MacTree的数据有效
+    // val MacTreeReady = ResultFIFOFull===false.B
+    // ReduceMAC8.io.FIFOReady := MacTreeReady
+    // ReduceMAC16.io.FIFOReady := MacTreeReady
+    // ReduceMAC32.io.FIFOReady := MacTreeReady
+
+    // //输出的ResultD什么时候能置valid？
+    // //ResultFIFO不为空时，才能置valid
+    // io.ResultD.valid := ResultFIFOValid
 
 }
 
