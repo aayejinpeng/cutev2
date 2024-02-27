@@ -11,116 +11,67 @@ import boom.exu.ygjk._
 //计算上来看，它的输入是两个向量，将两个向量广播成两个相同大小的矩阵后，将元素送入ReducuPE。向量的大小也很明显其一是Matrix_M，其二是Matrix_N，向量内的元素宽度是Reduce_Width
 class MatrixTE extends Module with HWParameters{
     val io = IO(new Bundle{
-        val VectorA = Flipped(DecoupledIO(UInt((ReduceWidth*Matrix_N).W)))
-        val VectorB = Flipped(DecoupledIO(UInt((ReduceWidth*Matrix_M).W)))
+        val VectorA = Flipped(DecoupledIO(UInt((ReduceWidth*Matrix_M).W)))
+        val VectorB = Flipped(DecoupledIO(UInt((ReduceWidth*Matrix_N).W)))
         val MatirxC = Flipped(DecoupledIO(UInt((ResultWidth*Matrix_M*Matrix_N).W)))
         val MatrixD = DecoupledIO(UInt(ResultWidth.W))
         val ConfigInfo = Flipped(DecoupledIO(new ConfigInfoIO))
     })
 
-    // val ReduceMAC8 = Module(new ReduceMACTree8)
-    // ReduceMAC8.io.AVector <> io.ReduceA
-    // ReduceMAC8.io.BVector <> io.ReduceB
-    // ReduceMAC8.io.CAdd    <> io.AddC
-    // ReduceMAC8.io.Chosen  := false.B
-    // ReduceMAC8.io.FIFOReady   := false.B
+    //实例化ReducePE
+    val Matrix = VecInit.tabulate(Matrix_M, Matrix_N){(x,y) => Module(new ReducePE).io}
 
-    // val ReduceMAC16 = Module(new ReduceMACTree16)
-    // ReduceMAC16.io.AVector <> io.ReduceA
-    // ReduceMAC16.io.BVector <> io.ReduceB
-    // ReduceMAC16.io.CAdd    <> io.AddC
-    // ReduceMAC16.io.Chosen  := false.B
-    // ReduceMAC16.io.FIFOReady   := false.B
+    //直接驱动ReducePE的输入
+    //接下来给每个ReducePE的输入进行赋值
+    //broadcaster的逻辑
+    for (i <- 0 until Matrix_M){
+        for (j <- 0 until Matrix_N){
+            Matrix(i)(j).ReduceA.bits       := io.VectorA.bits((i+1)*ReduceWidth-1,(i)*ReduceWidth)
+            Matrix(i)(j).ReduceA.valid      := io.VectorA.valid
+            Matrix(i)(j).ReduceB.bits       := io.VectorB.bits((j+1)*ReduceWidth-1,(j)*ReduceWidth)
+            Matrix(i)(j).ReduceB.valid      := io.VectorB.valid
+            Matrix(i)(j).AddC.bits          := io.MatirxC.bits((i*Matrix_N+j+1)*ResultWidth-1,(i*Matrix_N+j)*ResultWidth)
+            Matrix(i)(j).AddC.valid         := io.MatirxC.valid
+            Matrix(i)(j).ConfigInfo.bits    := io.ConfigInfo.bits
+            Matrix(i)(j).ConfigInfo.valid   := io.ConfigInfo.valid
+        }
+    }
 
-    // val ReduceMAC32 = Module(new ReduceMACTree32)
-    // ReduceMAC32.io.AVector <> io.ReduceA
-    // ReduceMAC32.io.BVector <> io.ReduceB
-    // ReduceMAC32.io.CAdd    <> io.AddC
-    // ReduceMAC32.io.Chosen  := false.B
-    // ReduceMAC32.io.FIFOReady   := false.B
+    //将每个ReducePE的输出拼接成一个矩阵，然后送入MatrixD
+    val CurrentMatrixD = Wire(Vec(Matrix_M*Matrix_N, UInt(ResultWidth.W)))
+    for (i <- 0 until Matrix_M){
+        for (j <- 0 until Matrix_N){
+            CurrentMatrixD(i*Matrix_N+j) := Matrix(i)(j).ResultD.bits
+        }
+    }
+    //这里asUInt可以将Vec(UInt)转换成UInt
+    io.MatrixD.bits := CurrentMatrixD.asUInt
+    //如果Matrix(i)(j)的每个vali都为true，那么MatrixD的valid才为true
+    io.MatrixD.valid := Matrix.map(_.map(_.ResultD.valid).reduce(_&&_)).reduce(_&&_)
 
-    // //PE不工作且FIFO为空时，才能接受新的配置信息
-    // val PEWorking = RegInit(false.B)
-    // PEWorking = ReduceMAC8.io.working || ReduceMAC16.io.working || ReduceMAC32.io.working
-    // io.ConfigInfo.ready := !PEWorking && ResultFIFOEmpty
-    // when(io.ConfigInfo.fire()){
-    //   dataType := io.ConfigInfo.bits.dataType
-    // }
+    //确定所有的ready信号
+    //当所有的ReducePE的输入都ready的时候，VectorA和VectorB的ready才为true
+    //注意这里如果是时序不足的点，很简单只用考察一个PE即可，因为所有PE是同步执行的，这里这样写是保证逻辑完整完备，代码可读性高
+    val ReducePEInputAllReady = Matrix.map(_.map(_.ReduceA.ready).reduce(_&&_)).reduce(_&&_) &&
+                           Matrix.map(_.map(_.ReduceB.ready).reduce(_&&_)).reduce(_&&_) &&
+                           Matrix.map(_.map(_.AddC.ready).reduce(_&&_)).reduce(_&&_)
+    io.VectorA.ready := ReducePEInputAllReady
+    io.VectorB.ready := ReducePEInputAllReady
+    io.MatirxC.ready := ReducePEInputAllReady
     
-    // //数据类型，整个计算过程中只有一个数据类型，ConfigInfo不会改变
-    // val dataType = RegInit(ElementDataType.DataTypeUndef)
+    val ReducePEConfigAllReady = Matrix.map(_.map(_.ConfigInfo.ready).reduce(_&&_)).reduce(_&&_)
+    io.ConfigInfo.ready := ReducePEConfigAllReady
 
-    // //根据数据类型选择不同的ReduceMAC,作为CurrentResultD的数据源，由于configinfo不会改变，所以这里的DResult不用改变，并设置Valid信号
-    // val CurrentResultD = Wire(Valid(UInt(ResultWidth.W)))
-    // when(dataType===ElementDataType.DataTypeUInt8){
-    //     CurrentResultD <> ReduceMAC8.io.DResult
-    //     RedcueMAC8.io.Chosen := true.B
-    // }.elsewhen(dataType===ElementDataType.DataTypeUInt16){
-    //     CurrentResultD <> ReduceMAC16.io.DResult
-    //     ReduceMAC16.io.Chosen := true.B
-    // }.elsewhen(dataType===ElementDataType.DataTypeUInt32){
-    //     CurrentResultD <> ReduceMAC32.io.DResult
-    //     ReduceMAC32.io.Chosen := true.B
-    // }.otherwise{
-    //     CurrentResultD.valid := false.B
-    // }
+    //越浅的fifo，越少的能量消耗～
+    //直接送到CscratchPad的数据，是最香的
+    //只要MatrixD的是ready的，就可以送数据
+    for (i <- 0 until Matrix_M){
+        for (j <- 0 until Matrix_N){
+            Matrix(i)(j).ResultD.ready := io.MatrixD.ready
+        }
+    }
 
-    
-    // //只有在数据类型匹配时才能进行计算
-    // //在Reduce内完成数据的握手，及所有数据准备好后才能进行计算，并用一个fifo保存ResultD，等待ResultD被握手
-    // val ResultFIFO = RegInit(VecInit(Seq.fill(ResultFIFODepth)(0.U(ResultWidth.W))))
-    // val ResultFIFOHead = RegInit(0.U(log2Ceil(ResultFIFODepth).W))
-    // val ResultFIFOTail = RegInit(0.U(log2Ceil(ResultFIFODepth).W))
-    // val ResultFIFOFull = ResultFIFOHead === (ResultFIFOTail + 1.U)(log2Ceil(ResultFIFODepth).W-1, 0)
-    // val ResultFIFOEmpty = ResultFIFOHead === ResultFIFOTail
-    // val ResultFIFOValid = RegInit(false.B)
 
-    // when(CurrentResultD.valid){
-    //   when(!ResultFIFOFull){
-    //     ResultFIFO(ResultFIFOTail) := CurrentResultD.bits
-    //     when(ResultFIFOTail+1.U===ResultFIFODepth.U){
-    //       ResultFIFOTail := 0.U
-    //     }.otherwise{
-    //       ResultFIFOTail := ResultFIFOTail + 1.U
-    //     }
-    //   }.otherwise{
-    //     // printf(p"ResultFIFOFull\n")
-    //   }
-    // }
-
-    // when(io.ResultD.fire()){
-    //   when(ResultFIFOEmpty){
-    //     ResultFIFOValid := false.B
-    //   }.otherwise{
-    //     io.ResultD.bits := ResultFIFO(ResultFIFOHead)
-    //     ResultFIFOValid := true.B
-    //     when(ResultFIFOHead+1.U===ResultFIFODepth.U){
-    //       ResultFIFOHead := 0.U
-    //     }.otherwise{
-    //       ResultFIFOHead := ResultFIFOHead + 1.U
-    //     }
-    //   }
-    // }
-
-    // //数据源ReduceA ReduceB AddC什么时候能置ready？
-    // //全部valid的时候才可以，同时当前流水下的所有数据都能在fifo中存的下，才能置ready
-    // //方案1:已知MACTree的流水线深度，已知ResultFIFO的深度，可以得出ResultFIFO存的数据达到某个深度时，可以安全的接受新的数据
-    // //方案2：直接用FIFO满没满确定是否ready，整体流水线都受这个制约，好像有点粗暴？只要ready，所有数据往下流一个流水级，否则不动
-    // val InputReady = ResultFIFOFull===false.B
-    // io.ReduceA.ready := InputReady
-    // io.ReduceB.ready := InputReady
-    // io.AddC.ready    := InputReady
-
-    // //什么时候能接让MacTree的数据输入到fifo？
-    // //MacTree的数据输入到fifo的时候，fifo不满，且MacTree的数据有效
-    // val MacTreeReady = ResultFIFOFull===false.B
-    // ReduceMAC8.io.FIFOReady := MacTreeReady
-    // ReduceMAC16.io.FIFOReady := MacTreeReady
-    // ReduceMAC32.io.FIFOReady := MacTreeReady
-
-    // //输出的ResultD什么时候能置valid？
-    // //ResultFIFO不为空时，才能置valid
-    // io.ResultD.valid := ResultFIFOValid
 
 }
 
