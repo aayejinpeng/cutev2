@@ -72,6 +72,10 @@ class ConfigInfoIO extends Bundle with HWParameters with YGJKParameters{
 //    val idle = Output(Bool())
 }
 
+class ScaratchpadIO extends Bundle with HWParameters{
+    
+}
+
 case object  ElementDataType extends Field[UInt]{
     val DataTypeUndef = 0.U(3.W)
     val DataTypeUInt32 = 1.U(3.W)
