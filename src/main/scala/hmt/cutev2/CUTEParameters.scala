@@ -41,7 +41,8 @@ trait HWParameters{
     val MAC16Latency = 4
     val MAC8TreeLevel = log2(ReduceWidthByte * 8 / 8)
     val MAC8Latency = 5
-    //val MACresq = 8
+//乘累加FIFO的深度
+    val ResultFIFODepth = 8
 }
 
 //需要配置的信息：oc -- 控制器发来的oc编号, 
@@ -72,7 +73,8 @@ class ConfigInfoIO extends Bundle with HWParameters with YGJKParameters{
 }
 
 case object  ElementDataType extends Field[UInt]{
+    val DataTypeUndef = 0.U(3.W)
     val DataTypeUInt32 = 1.U(3.W)
     val DataTypeUInt16 = 2.U(3.W)
-    val DataTypeUInt8  = 4.U(3.W)
+    val DataTypeUInt8  = 3.U(3.W)
 }
