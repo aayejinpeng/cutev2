@@ -15,7 +15,7 @@ class ADataController extends Module with HWParameters{
 
         //TODO:需要一个ScarchPad的接口～
         //先整一个ScarchPad的接口的总体设计
-        val ScarchPadIO = Flipped(new DataControlScaratchpadIO)
+        val ScarchPadIO = Flipped(new ADataControlScaratchpadIO)
         val ConfigInfo = Flipped(DecoupledIO(new ConfigInfoIO))
         val VectorA = DecoupledIO(UInt(ResultWidth.W))
     })

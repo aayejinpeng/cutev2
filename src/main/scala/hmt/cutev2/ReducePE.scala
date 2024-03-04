@@ -5,6 +5,7 @@ import chisel3._
 import chisel3.util._
 import org.chipsalliance.cde.config._
 import boom.exu.ygjk._
+import boom.util._
 
 class ReduceMACTree8 extends Module with HWParameters{
     val io = IO(new Bundle{
@@ -79,22 +80,31 @@ class ReducePE extends Module with HWParameters{
     ReduceMAC32.io.Chosen  := false.B
     ReduceMAC32.io.FIFOReady   := false.B
 
+    //只有在数据类型匹配时才能进行计算
+    //在Reduce内完成数据的握手，及所有数据准备好后才能进行计算，并用一个fifo保存ResultD，等待ResultD被握手
+    val ResultFIFO = RegInit(VecInit(Seq.fill(ResultFIFODepth)(0.U(ResultWidth.W))))
+    val ResultFIFOHead = RegInit(0.U(log2Ceil(ResultFIFODepth).W))
+    val ResultFIFOTail = RegInit(0.U(log2Ceil(ResultFIFODepth).W))
+    val ResultFIFOFull = ResultFIFOHead === WrapInc(ResultFIFOTail, ResultFIFODepth)
+    val ResultFIFOEmpty = ResultFIFOHead === ResultFIFOTail
+    val ResultFIFOValid = RegInit(false.B)
+
+    //数据类型，整个计算过程中只有一个数据类型，ConfigInfo不会改变
+    val dataType = RegInit(ElementDataType.DataTypeUndef)
     //PE不工作且FIFO为空时，才能接受新的配置信息
-    val PEWorking = RegInit(false.B)
-    PEWorking = ReduceMAC8.io.working || ReduceMAC16.io.working || ReduceMAC32.io.working
+    val PEWorking = ReduceMAC8.io.working || ReduceMAC16.io.working || ReduceMAC32.io.working
     io.ConfigInfo.ready := !PEWorking && ResultFIFOEmpty
-    when(io.ConfigInfo.fire()){
+    when(io.ConfigInfo.fire){
       dataType := io.ConfigInfo.bits.dataType
     }
     
-    //数据类型，整个计算过程中只有一个数据类型，ConfigInfo不会改变
-    val dataType = RegInit(ElementDataType.DataTypeUndef)
+
 
     //根据数据类型选择不同的ReduceMAC,作为CurrentResultD的数据源，由于configinfo不会改变，所以这里的DResult不用改变，并设置Valid信号
     val CurrentResultD = Wire(Valid(UInt(ResultWidth.W)))
     when(dataType===ElementDataType.DataTypeUInt8){
         CurrentResultD <> ReduceMAC8.io.DResult
-        RedcueMAC8.io.Chosen := true.B
+        ReduceMAC8.io.Chosen := true.B
     }.elsewhen(dataType===ElementDataType.DataTypeUInt16){
         CurrentResultD <> ReduceMAC16.io.DResult
         ReduceMAC16.io.Chosen := true.B
@@ -106,14 +116,7 @@ class ReducePE extends Module with HWParameters{
     }
 
     
-    //只有在数据类型匹配时才能进行计算
-    //在Reduce内完成数据的握手，及所有数据准备好后才能进行计算，并用一个fifo保存ResultD，等待ResultD被握手
-    val ResultFIFO = RegInit(VecInit(Seq.fill(ResultFIFODepth)(0.U(ResultWidth.W))))
-    val ResultFIFOHead = RegInit(0.U(log2Ceil(ResultFIFODepth).W))
-    val ResultFIFOTail = RegInit(0.U(log2Ceil(ResultFIFODepth).W))
-    val ResultFIFOFull = ResultFIFOHead === (ResultFIFOTail + 1.U)(log2Ceil(ResultFIFODepth).W-1, 0)
-    val ResultFIFOEmpty = ResultFIFOHead === ResultFIFOTail
-    val ResultFIFOValid = RegInit(false.B)
+
 
     when(CurrentResultD.valid){
       when(!ResultFIFOFull){
@@ -128,7 +131,7 @@ class ReducePE extends Module with HWParameters{
       }
     }
 
-    when(io.ResultD.fire()){
+    when(io.ResultD.fire){
       when(ResultFIFOEmpty){
         ResultFIFOValid := false.B
       }.otherwise{
