@@ -21,6 +21,15 @@ class ReduceMACTree8 extends Module with HWParameters{
     //Chosen置高，该加法树工作被选择为工作加法树
     //working置高，在加法树工作中
     //完成加法树部分即可，ABC fire，且Ready置高，则DResult置valid
+
+    //TODO:init
+    io.AVector.ready := false.B
+    io.BVector.ready := false.B
+    io.CAdd.ready := false.B
+    io.DResult.valid := false.B
+    io.DResult.bits := DontCare
+    io.working := false.B
+
 }
 
 class ReduceMACTree16 extends Module with HWParameters{
@@ -33,7 +42,12 @@ class ReduceMACTree16 extends Module with HWParameters{
         val FIFOReady = Input(Bool())
         val working = Output(Bool())
     })
-
+    io.AVector.ready := false.B
+    io.BVector.ready := false.B
+    io.CAdd.ready := false.B
+    io.DResult.valid := false.B
+    io.DResult.bits := DontCare
+    io.working := false.B
 }
 
 class ReduceMACTree32 extends Module with HWParameters{
@@ -46,7 +60,12 @@ class ReduceMACTree32 extends Module with HWParameters{
         val FIFOReady = Input(Bool())
         val working = Output(Bool())
     })
-
+    io.AVector.ready := false.B
+    io.BVector.ready := false.B
+    io.CAdd.ready := false.B
+    io.DResult.valid := false.B
+    io.DResult.bits := DontCare
+    io.working := false.B
 }
 
 //单个ReducePE, 计算Reduce乘累加的结果
@@ -58,6 +77,15 @@ class ReducePE extends Module with HWParameters{
         val ResultD = DecoupledIO(UInt(ResultWidth.W))
         val ConfigInfo = Flipped(DecoupledIO(new ConfigInfoIO))
     })
+
+    //TODO:init
+    io.ReduceA.ready := false.B
+    io.ReduceB.ready := false.B
+    io.AddC.ready := false.B
+    io.ResultD.valid := false.B
+    io.ResultD.bits := DontCare
+    io.ConfigInfo.ready := false.B
+
 
     val ReduceMAC8 = Module(new ReduceMACTree8)
     ReduceMAC8.io.AVector <> io.ReduceA
@@ -102,6 +130,7 @@ class ReducePE extends Module with HWParameters{
 
     //根据数据类型选择不同的ReduceMAC,作为CurrentResultD的数据源，由于configinfo不会改变，所以这里的DResult不用改变，并设置Valid信号
     val CurrentResultD = Wire(Valid(UInt(ResultWidth.W)))
+    CurrentResultD := DontCare
     when(dataType===ElementDataType.DataTypeUInt8){
         CurrentResultD <> ReduceMAC8.io.DResult
         ReduceMAC8.io.Chosen := true.B

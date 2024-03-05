@@ -12,7 +12,8 @@ trait HWParameters{
     val Tensor_M = 64
     val Tensor_N = 64
     val Tensor_K = 64
-
+    val ScaratchpadMaxTensorDim = Math.max(Tensor_M, Math.max(Tensor_N, Tensor_K))
+    val ScaratchpadMaxTensorDimBitSize = log2Ceil(ScaratchpadMaxTensorDim) + 1
 //ReduceWidthByte 代表ReducePE进行内积时的数据宽度，单位是字节
     val ReduceWidthByte = 32
     val ReduceWidth = ReduceWidthByte * 8
@@ -76,7 +77,11 @@ class ConfigInfoIO extends Bundle with HWParameters with YGJKParameters{
     // val Aaddr = Flipped(Valid(UInt(addrWidth.W))) //A矩阵首地址
     // val Baddr = Flipped(Valid(UInt(addrWidth.W))) //B矩阵首地址
     // val Caddr = Flipped(Valid(UInt(addrWidth.W))) //C矩阵首地址
-    val dataType = (UInt(3.W))  //1-32位，2-16位， 4-32位
+    val ScaratchpadTensor_M = (UInt(ScaratchpadMaxTensorDimBitSize.W)) //矩阵乘的M //TODO:
+    val ScaratchpadTensor_N = (UInt(ScaratchpadMaxTensorDimBitSize.W)) //矩阵乘的N
+    val ScaratchpadTensor_K = (UInt(ScaratchpadMaxTensorDimBitSize.W)) //矩阵乘的K
+    val taskType = (UInt(8.W)) //0-矩阵乘，1-卷积
+    val dataType = (UInt(3.W)) //1-32位，2-16位， 4-32位
 //    val idle = Output(Bool())
 }
 
@@ -93,21 +98,29 @@ class ADataControlScaratchpadIO extends Bundle with HWParameters{
     //bankdata是对nbanks个bank，各自bank的行数据，是一个vec，有nbanks个元素，每个元素是一个UInt，UInt的宽度是ReduceWidthByte*8
     val Data = Valid(Vec(AScratchpadNBanks, UInt(ReduceWidth.W)))
     //chosen是选择该ScarchPad的信号，是一个bool，我们做doublebuffer，选择其一供数，选择其一加载数据
-    val Chosen = Bool()
+    val Chosen = Input(Bool())
 }
 
 class AMemoryLoaderScaratchpadIO extends Bundle with HWParameters{
     //bankaddr是对nbanks个bank，各自bank的行选信号,是一个vec，有nbanks个元素，每个元素是一个UInt，UInt的宽度是log2Ceil(AScratchpadBankNLines)，是输入的需要握手的数据
     val BankAddr = Flipped(DecoupledIO(Vec(AScratchpadNBanks, (UInt(log2Ceil(AScratchpadBankNEntrys).W)))))
     //bankdata是对nbanks个bank，各自bank的行数据，是一个vec，有nbanks个元素，每个元素是一个UInt，UInt的宽度是ReduceWidthByte*8
-    val Data = Valid(Vec(AScratchpadNBanks, UInt(ReduceWidth.W)))
+    val Data = Flipped(DecoupledIO(Vec(AScratchpadNBanks, UInt(ReduceWidth.W))))
     //chosen是选择该ScarchPad的信号，是一个bool，我们做doublebuffer，选择其一供数，选择其一加载数据
-    val Chosen = Bool()
+    val Chosen = Input(Bool())
 }
 
+//数据类型的样板类
 case object  ElementDataType extends Field[UInt]{
     val DataTypeUndef = 0.U(3.W)
     val DataTypeUInt32 = 1.U(3.W)
     val DataTypeUInt16 = 2.U(3.W)
     val DataTypeUInt8  = 3.U(3.W)
+}
+
+//工作任务的样板类
+case object  CUTETaskType extends Field[UInt]{
+    val TaskTypeUndef = 0.U(8.W)
+    val TaskTypeMatrixMul = 1.U(8.W)
+    val TaskTypeConv = 2.U(8.W)
 }

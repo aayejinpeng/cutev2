@@ -33,10 +33,34 @@ class MMacc extends MyACCModule with HWParameters with YGJKParameters{
     // val C2PE = VecInit(Seq.fill(ocPENum)(Module(new C2PE).io))
     // val CScratchpad = VecInit(Seq.fill(ocPENum)(Module(new CScratchpad).io))
 
+    //TODO:init DontCare很危险
+    io.cmd.acc_req_a.bits := DontCare
+    io.cmd.acc_req_a.valid := DontCare
+    io.cmd.acc_req_b.bits := DontCare
+    io.cmd.acc_req_b.valid := DontCare
+    io.cmd.req_id := DontCare
+    io.ctl.acc_running := DontCare
+
+
     val ASPad = Module(new AScratchpad).io
     val ADC = Module(new ADataController).io
     
     val MTE = Module(new MatrixTE).io
+
+    MTE.VectorA <> ADC.VectorA
+    MTE.VectorB := DontCare //TODO:
+    MTE.MatirxC := DontCare //TODO:
+    MTE.MatrixD := DontCare //TODO:
+    MTE.ConfigInfo := DontCare //TODO:
+    ADC.FromScarchPadIO <> ASPad.ScarchPadIO.FromDataController
+    ADC.ConfigInfo := DontCare //TODO:
+    ASPad.ScarchPadIO.FromMemoryLoader := DontCare //TODO:
+    
+    ADC.SwitchScarchPad.ready := false.B //TODO:
+    ADC.TaskEnd.bits := false.B //TODO:
+    ADC.TaskEnd.valid := false.B //TODO:
+    
+
 
 
 

@@ -18,9 +18,14 @@ class AScarchPadIO extends Bundle with HWParameters{
 
 class AScratchpad extends Module with HWParameters{
     val io = IO(new Bundle{
-        val ConfigInfo = Flipped(DecoupledIO(new ConfigInfoIO))
+        // val ConfigInfo = Flipped(DecoupledIO(new ConfigInfoIO))
         val ScarchPadIO = new AScarchPadIO
     })
+
+    //TODO:初始化
+    io.ScarchPadIO.FromMemoryLoader.BankAddr.ready := false.B
+    io.ScarchPadIO.FromMemoryLoader.Data.ready := false.B
+    
 
     //当前ScarchPad被选为工作ScarchPad
     val DataControllerChosen = io.ScarchPadIO.FromDataController.Chosen
