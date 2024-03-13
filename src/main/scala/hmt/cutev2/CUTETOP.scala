@@ -6,14 +6,6 @@ import chisel3.util._
 import org.chipsalliance.cde.config._
 import boom.exu.ygjk._
 
-class Withacc_MMacc extends Config((site,here,up) => {  
-    case BuildYGAC =>
-        (p:Parameters) => {          
-            val myAccel = Module(new MMacc)
-            myAccel
-        }
-    }
-)
 
 class MMacc extends MyACCModule with HWParameters with YGJKParameters{
     

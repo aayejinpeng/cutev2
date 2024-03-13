@@ -18,6 +18,7 @@ class Yg2TL2(implicit p: Parameters) extends LazyModule with YGJKParameters {
     sourceId = IdRange(0, sourceNum))))))
 }
 
+//TODO:这里的TLlink接口需要修改，需要修改出一条直接去内存的通道，相关的带宽等数据需要修改
 class Yg2TLImp2(outer: Yg2TL2) extends LazyModuleImp(outer) with YGJKParameters {
   val edge = outer.node.edges.out(0)
   val (tl_out, _) = outer.node.out(0)

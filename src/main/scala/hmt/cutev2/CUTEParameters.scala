@@ -5,21 +5,68 @@ import chisel3._
 import chisel3.util._
 import org.chipsalliance.cde.config._
 import boom.exu.ygjk._
+import freechips.rocketchip.subsystem._
+import freechips.rocketchip.diplomacy._
+import freechips.rocketchip.prci._
+import freechips.rocketchip.tile._
 // import freechips.rocketchip.regmapper.RRTest0Map
 
+case class MMAccConfig()
+case object MMAccKey extends Field[Option[MMAccConfig]](None)
+case object BuildDMAygjk extends Field[Seq[Parameters => LazyRoCC]](Nil)
+class Withacc_MMacc extends Config((site,here,up) => {  
+    case BuildYGAC =>
+        (p:Parameters) => {          
+            val myAccel = Module(new MMacc)
+            myAccel
+        }
+    case MMAccKey => true
+    case BuildDMAygjk => true
+    }
+)
+
+class CUTECrossingParams(
+  override val MemDirectMaster: TilePortParamsLike = TileMasterPortParams(where = MBUS)
+) extends RocketCrossingParams
 trait HWParameters{
-//Scaratchpad中保存的张量形状
-    val Tensor_M = 64
-    val Tensor_N = 64
-    val Tensor_K = 64
-    val ScaratchpadMaxTensorDim = Math.max(Tensor_M, Math.max(Tensor_N, Tensor_K))
-    val ScaratchpadMaxTensorDimBitSize = log2Ceil(ScaratchpadMaxTensorDim) + 1
+
 //ReduceWidthByte 代表ReducePE进行内积时的数据宽度，单位是字节
     val ReduceWidthByte = 32
     val ReduceWidth = ReduceWidthByte * 8
 //ResultWidthByte 代表ReducePE的结果宽度，单位是字节
     val ResultWidthByte = 4
     val ResultWidth = ResultWidthByte * 8
+
+//最大可处理的程序的张量形状，
+    val ApplicationMaxTensorSize = 16384
+    val ApplicationMaxTensorSizeBitSize = log2Ceil(ApplicationMaxTensorSize) + 1
+//MMU的地址宽度
+    val MMUAddrWidth = 64
+//MMU的数据线宽度
+    val MMUDataWidth = ReduceWidth //TODO:ReduceWidth等于LLCDataWidth，以后得改
+//MMU的数据线有效数据位数
+    val MMUDataWidthBitSize = log2Ceil(MMUDataWidth) + 1
+//LLC的数据线宽度
+    val LLCDataWidth = 256      //TODO:这个值需要从chipyard的config中来
+//Memory的数据线宽度
+    val MemoryDataWidth = 64    //TODO:这个值需要从chipyard的config中来
+//LLC总线上的source最大数量 --> 这个参数和LLC的访存延迟强相关，若要满流水，这个sourceMAXnum的数量必须大于LLC的访存延迟
+    val LLCSourceMaxNum = 32
+    val LLCSourceMaxNumBitSize = log2Ceil(LLCSourceMaxNum) + 1
+//Memory总线上的source最大数量 --> 这个参数和Memory的访存延迟强相关，若要满流水，这个sourceMAXnum的数量必顶大于Memory的访存延迟
+    val MemorysourceMaxNum = 32
+    val MemorysourceMaxNumBitSize = log2Ceil(MemorysourceMaxNum) + 1
+
+    val SoureceMaxNum = math.max(LLCSourceMaxNum, MemorysourceMaxNum)
+    val SoureceMaxNumBitSize = log2Ceil(SoureceMaxNum) + 1
+
+
+//Scaratchpad中保存的张量形状
+    val Tensor_M = 64
+    val Tensor_N = 64
+    val Tensor_K = 64
+    val ScaratchpadMaxTensorDim = Math.max(Tensor_M, Math.max(Tensor_N, Tensor_K))
+    val ScaratchpadMaxTensorDimBitSize = log2Ceil(ScaratchpadMaxTensorDim) + 1
 //AScaratchpad中保存的张量形状为M*K
 //AScaratchpad的大小为Tenser_M * Tensor_K * ReduceWidthByte
 //需要考虑Scaratchpad的顺序读，需要考虑为Scaratchpad分bank
@@ -77,11 +124,38 @@ class ConfigInfoIO extends Bundle with HWParameters with YGJKParameters{
     // val Aaddr = Flipped(Valid(UInt(addrWidth.W))) //A矩阵首地址
     // val Baddr = Flipped(Valid(UInt(addrWidth.W))) //B矩阵首地址
     // val Caddr = Flipped(Valid(UInt(addrWidth.W))) //C矩阵首地址
-    val ScaratchpadTensor_M = (UInt(ScaratchpadMaxTensorDimBitSize.W)) //矩阵乘的M //TODO:
-    val ScaratchpadTensor_N = (UInt(ScaratchpadMaxTensorDimBitSize.W)) //矩阵乘的N
-    val ScaratchpadTensor_K = (UInt(ScaratchpadMaxTensorDimBitSize.W)) //矩阵乘的K
-    val taskType = (UInt(8.W)) //0-矩阵乘，1-卷积
-    val dataType = (UInt(3.W)) //1-32位，2-16位， 4-32位
+    
+    val ApplicationTensor_A = (new Bundle{
+        val ApplicationTensor_A_BaseVaddr = (UInt(MMUAddrWidth.W))
+        val BlockTensor_A_BaseVaddr       = (UInt(MMUAddrWidth.W))
+        val MemoryOrder                   = (UInt(MemoryOrderType.MemoryOrderTypeBitWidth.W))
+        val Conherent                     = (Bool())
+    })
+
+    val ApplicationTensor_B = (new Bundle{
+        val ApplicationTensor_B_BaseVaddr = (UInt(MMUAddrWidth.W))
+        val BlockTensor_B_BaseVaddr       = (UInt(MMUAddrWidth.W))
+        val MemoryOrder                   = (UInt(MemoryOrderType.MemoryOrderTypeBitWidth.W))
+        val Conherent                     = (Bool())
+    })
+    
+    val ApplicationTensor_C = (new Bundle{
+        val ApplicationTensor_C_BaseVaddr = (UInt(MMUAddrWidth.W))
+        val BlockTensor_C_BaseVaddr       = (UInt(MMUAddrWidth.W))
+        val MemoryOrder                   = (UInt(MemoryOrderType.MemoryOrderTypeBitWidth.W))
+        val Conherent                     = (Bool())
+    })
+
+    val ApplicationTensor_M = (UInt(ApplicationMaxTensorSizeBitSize.W))
+    val ApplicationTensor_N = (UInt(ApplicationMaxTensorSizeBitSize.W))
+    val ApplicationTensor_K = (UInt(ApplicationMaxTensorSizeBitSize.W))
+
+    val ScaratchpadTensor_M = (UInt(ScaratchpadMaxTensorDimBitSize.W)) //Scaratchpad当前处理的矩阵乘的M //TODO:
+    val ScaratchpadTensor_N = (UInt(ScaratchpadMaxTensorDimBitSize.W)) //Scaratchpad当前处理的矩阵乘的N
+    val ScaratchpadTensor_K = (UInt(ScaratchpadMaxTensorDimBitSize.W)) //Scaratchpad当前处理的矩阵乘的K
+
+    val taskType = (UInt(ElementDataType.DataTypeBitWidth.W)) //0-矩阵乘，1-卷积
+    val dataType = (UInt(CUTETaskType.CUTETaskBitWidth.W)) //1-32位，2-16位， 4-32位
 //    val idle = Output(Bool())
 }
 
@@ -103,24 +177,64 @@ class ADataControlScaratchpadIO extends Bundle with HWParameters{
 
 class AMemoryLoaderScaratchpadIO extends Bundle with HWParameters{
     //bankaddr是对nbanks个bank，各自bank的行选信号,是一个vec，有nbanks个元素，每个元素是一个UInt，UInt的宽度是log2Ceil(AScratchpadBankNLines)，是输入的需要握手的数据
-    val BankAddr = Flipped(DecoupledIO(Vec(AScratchpadNBanks, (UInt(log2Ceil(AScratchpadBankNEntrys).W)))))
+    val BankId = Flipped(Valid(UInt(log2Ceil(AScratchpadNBanks).W)))
+    val BankAddr = Flipped(Valid(UInt(log2Ceil(AScratchpadBankNEntrys).W)))
     //bankdata是对nbanks个bank，各自bank的行数据，是一个vec，有nbanks个元素，每个元素是一个UInt，UInt的宽度是ReduceWidthByte*8
-    val Data = Flipped(DecoupledIO(Vec(AScratchpadNBanks, UInt(ReduceWidth.W))))
+    val Data = Flipped(Valid(UInt(ReduceWidth.W)))
     //chosen是选择该ScarchPad的信号，是一个bool，我们做doublebuffer，选择其一供数，选择其一加载数据
     val Chosen = Input(Bool())
 }
 
+//LocalMMU的接口
+class LocalMMUIO extends Bundle with HWParameters{
+
+    val Request = Flipped(DecoupledIO(new Bundle{
+        val RequestVirtualAddr = UInt(MMUAddrWidth.W)
+        val RequestConherent = Bool()
+        val RequestData = UInt(MMUDataWidth.W)
+        val RequestSourceID = UInt(SoureceMaxNumBitSize.W)
+        val RequestType_isWrite = UInt(2.W) //0-读，1-写
+    }))
+    //读写请求分发到的TL Link的事务编号
+    val ConherentRequsetSourceID = Valid(UInt(LLCSourceMaxNumBitSize.W))
+    val nonConherentRequsetSourceID = Valid(UInt(MemorysourceMaxNumBitSize.W))
+
+    val Response = Valid(new Bundle{
+        val ReseponseData = UInt(MMUDataWidth.W)
+        val ReseponseConherent = Bool()
+        val ReseponseSourceID = UInt(SoureceMaxNumBitSize.W)
+    })
+}
+
+
 //数据类型的样板类
 case object  ElementDataType extends Field[UInt]{
-    val DataTypeUndef = 0.U(3.W)
-    val DataTypeUInt32 = 1.U(3.W)
-    val DataTypeUInt16 = 2.U(3.W)
-    val DataTypeUInt8  = 3.U(3.W)
+    val DataTypeBitWidth = 3
+    val DataTypeUndef  = 0.U(DataTypeBitWidth.W)
+    val DataTypeUInt32 = 1.U(DataTypeBitWidth.W)
+    val DataTypeUInt16 = 2.U(DataTypeBitWidth.W)
+    val DataTypeUInt8  = 3.U(DataTypeBitWidth.W)
 }
 
 //工作任务的样板类
 case object  CUTETaskType extends Field[UInt]{
-    val TaskTypeUndef = 0.U(8.W)
-    val TaskTypeMatrixMul = 1.U(8.W)
-    val TaskTypeConv = 2.U(8.W)
+    val CUTETaskBitWidth = 8
+    val TaskTypeUndef = 0.U(CUTETaskBitWidth.W)
+    val TaskTypeMatrixMul = 1.U(CUTETaskBitWidth.W)
+    val TaskTypeConv = 2.U(CUTETaskBitWidth.W)
 }
+
+case object  MemoryOrderType extends Field[UInt]{
+    val MemoryOrderTypeBitWidth = 8
+    val OrderTypeUndef      = 0.U(MemoryOrderTypeBitWidth.W)
+    val OrderType_Mb_Kb     = 1.U(MemoryOrderTypeBitWidth.W) //在地址空间中顺序摆放的顺序, Mb在前，Kb在后
+    val OrderType_Mb_Nb     = 1.U(MemoryOrderTypeBitWidth.W) //在地址空间中顺序摆放的顺序, Mb在前，Nb在后
+    val OrderType_Nb_Kb     = 1.U(MemoryOrderTypeBitWidth.W) //在地址空间中顺序摆放的顺序, Nb在前，Kb在后
+    val OrderType_Nb_Mb     = 2.U(MemoryOrderTypeBitWidth.W) //在地址空间中顺序摆放的顺序, Nb在前，Mb在后
+    val OrderType_Kb_Mb     = 2.U(MemoryOrderTypeBitWidth.W) //在地址空间中顺序摆放的顺序, Kb在前，Mb在后
+    val OrderType_Kb_Nb     = 2.U(MemoryOrderTypeBitWidth.W) //在地址空间中顺序摆放的顺序, Kb在前，Nb在后
+
+}
+
+
+

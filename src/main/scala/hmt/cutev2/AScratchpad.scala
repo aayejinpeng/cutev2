@@ -22,9 +22,6 @@ class AScratchpad extends Module with HWParameters{
         val ScarchPadIO = new AScarchPadIO
     })
 
-    //TODO:初始化
-    io.ScarchPadIO.FromMemoryLoader.BankAddr.ready := false.B
-    io.ScarchPadIO.FromMemoryLoader.Data.ready := false.B
     
 
     //当前ScarchPad被选为工作ScarchPad
@@ -38,15 +35,17 @@ class AScratchpad extends Module with HWParameters{
     val MemoryLoaderChosen = io.ScarchPadIO.FromMemoryLoader.Chosen
     //MemoryLoader的请求地址
     val MemoryLoaderBankAddr = io.ScarchPadIO.FromMemoryLoader.BankAddr.bits
+    val MemoryLoaderBankId = io.ScarchPadIO.FromMemoryLoader.BankId.bits
     //MemoryLoader的请求数据
     val MemoryLoaderData = io.ScarchPadIO.FromMemoryLoader.Data.bits
     
     //TODO:fifoready?
-    val read_ready = io.ScarchPadIO.FromDataController.BankAddr.valid && !io.ScarchPadIO.FromMemoryLoader.BankAddr.valid && DataControllerChosen
+    //TODO:我们要做成写优先的Scartchpad
     val write_ready = io.ScarchPadIO.FromMemoryLoader.BankAddr.valid && !io.ScarchPadIO.FromDataController.BankAddr.valid && MemoryLoaderChosen && io.ScarchPadIO.FromMemoryLoader.Data.valid
+    val read_ready = io.ScarchPadIO.FromDataController.BankAddr.valid && !io.ScarchPadIO.FromMemoryLoader.BankAddr.valid && DataControllerChosen && !write_ready //写优先～
     //为输入信号赋ready
     io.ScarchPadIO.FromDataController.BankAddr.ready := read_ready
-    io.ScarchPadIO.FromMemoryLoader.BankAddr.ready := write_ready
+    // io.ScarchPadIO.FromMemoryLoader.BankAddr.ready := write_ready
     //SRAM下一拍的返回结果，所以使用上一拍的ready作为valid
     io.ScarchPadIO.FromDataController.Data.valid := RegNext(read_ready)
     //实例化多个sram为多个bank
@@ -67,9 +66,12 @@ class AScratchpad extends Module with HWParameters{
         //读取数据的fifo得在DataController里面自己实现，ScarchPad尽可能减少逻辑，符合SRAM的特性，所以上面的代码只有valid和data，没有ready
         
         //写数据
-        val s0_bank_write_addr = MemoryLoaderBankAddr(i)
-        val s0_bank_write_data = MemoryLoaderData(i)
-        bank.write(s0_bank_write_addr, s0_bank_write_data)
+        val s0_bank_write_addr = MemoryLoaderBankAddr
+        val s0_bank_write_data = MemoryLoaderData
+        val s0_bank_write_valid = io.ScarchPadIO.FromMemoryLoader.Data.valid && io.ScarchPadIO.FromMemoryLoader.BankAddr.valid && io.ScarchPadIO.FromMemoryLoader.BankId.valid
+        when(write_ready && s0_bank_write_valid){
+            bank.write(s0_bank_write_addr, s0_bank_write_data)
+        }
 
         bank
     }

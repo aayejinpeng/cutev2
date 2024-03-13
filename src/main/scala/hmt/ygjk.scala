@@ -30,7 +30,7 @@ class RoCC2YGJK(opcodes: OpcodeSet)(implicit p: Parameters) extends LazyRoCC(opc
   lazy val mem1 = Seq.fill(accNum)(LazyModule(new Yg2TL2))
   for(i <- 0 until accNum){
     tlNode := TLWidthWidget(ygjk_memWidth) := mem0(i).node
-    tlNode := TLWidthWidget(ygjk_memWidth) := mem1(i).node
+    DMANode := TLWidthWidget(ygjk_memWidth) := mem1(i).node //TODO:这里的node的处理逻辑得重新写，尤其是位宽处理上
   }
 //  tlNode := TLWidthWidget(ygjk_memWidth) := mem.map(_.node)
 }
