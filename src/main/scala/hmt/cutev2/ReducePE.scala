@@ -16,6 +16,7 @@ class ReduceMACTree8 extends Module with HWParameters{
         val Chosen = Input(Bool())
         val FIFOReady = Input(Bool())
         val working = Output(Bool())
+        val ExternalReduceSize = Input(UInt(ScaratchpadMaxTensorDimBitSize.W))
     })
     //FIFOReady置高，所有寄存器向下流一个流水级
     //Chosen置高，该加法树工作被选择为工作加法树
@@ -41,6 +42,7 @@ class ReduceMACTree16 extends Module with HWParameters{
         val Chosen = Input(Bool())
         val FIFOReady = Input(Bool())
         val working = Output(Bool())
+        val ExternalReduceSize = Input(UInt(ScaratchpadMaxTensorDimBitSize.W))
     })
     io.AVector.ready := false.B
     io.BVector.ready := false.B
@@ -59,6 +61,7 @@ class ReduceMACTree32 extends Module with HWParameters{
         val Chosen = Input(Bool())
         val FIFOReady = Input(Bool())
         val working = Output(Bool())
+        val ExternalReduceSize = Input(UInt(ScaratchpadMaxTensorDimBitSize.W))
     })
     io.AVector.ready := false.B
     io.BVector.ready := false.B
@@ -76,6 +79,7 @@ class ReducePE extends Module with HWParameters{
         val AddC    = Flipped(DecoupledIO(UInt(ReduceWidth.W)))
         val ResultD = DecoupledIO(UInt(ResultWidth.W))
         val ConfigInfo = Flipped(DecoupledIO(new ConfigInfoIO))
+        val ExternalReduceSize = Flipped(DecoupledIO(UInt(ScaratchpadMaxTensorDimBitSize.W)))
     })
 
     //TODO:init
@@ -117,6 +121,10 @@ class ReducePE extends Module with HWParameters{
     val ResultFIFOEmpty = ResultFIFOHead === ResultFIFOTail
     val ResultFIFOValid = RegInit(false.B)
 
+    //ReducePE和MatrixTE需要一个对于externalReduce的处理，以提高热效率，提供主频，减少对CScratchPad的访问
+    //ExternalReduce是指，我们的Scarchpad内的Tensor的K维大于1时，可以减少从CScratchPad的访问数据，让ReducePE使用自己暂存的累加结果后，再存至CScratchPad
+    //Trick：再来，这里的K越大，我们的CSratchPad的平均访问次数就越少，就可以使用更慢更大的SRAM
+    val ExternalReduceSize = io.ExternalReduceSize
     //数据类型，整个计算过程中只有一个数据类型，ConfigInfo不会改变
     val dataType = RegInit(ElementDataType.DataTypeUndef)
     //PE不工作且FIFO为空时，才能接受新的配置信息

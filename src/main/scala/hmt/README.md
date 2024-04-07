@@ -1,2 +1,8 @@
 # CUTE-V2
 
+REDUCE_PE和Matrix_TE包含的信息已足够描述RTL代码。
+DATAController依据读入的矩阵进行合理reorder
+Scratchpad使用chisel的SeqMem即可～分bank也能很好实现～
+* 关于不能完全分的情况，padding即可
+MemoryLoader的memory通道我们走tilelink～
+* 关于不能完全分的情况，padding即可

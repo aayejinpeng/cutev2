@@ -18,7 +18,7 @@ import boom.exu.ygjk._
 
 //注意，数据的reorder是可以离线完成的！这也属于编译器的一环。
 
-class SourceIdSearch extends Bundle with HWParameters{
+class ASourceIdSearch extends Bundle with HWParameters{
     val ScratchpadBankId = 0.U(log2Ceil(AScratchpadNBanks).W)
     val ScratchpadAddr = 0.U(log2Ceil(AScratchpadBankNEntrys).W)
 }
@@ -112,7 +112,7 @@ class AMemoryLoader extends Module with HWParameters{
     //一个cam来存储访存请求的source_id对应的Scarchpad的地址和bank号
     //用sourceid做索引，存储Scarchpad的地址和bank号，是一组寄存器
     
-    val SoureceIdSearchTable = VecInit(Seq.fill(SoureceMaxNum){RegInit(new SourceIdSearch)})
+    val SoureceIdSearchTable = VecInit(Seq.fill(SoureceMaxNum){RegInit(new ASourceIdSearch)})
 
     
     val Request = io.LocalMMUIO.Request
@@ -185,6 +185,8 @@ class AMemoryLoader extends Module with HWParameters{
         //一个cam来存储访存请求的source_id对应的Scarchpad的地址和bank号
         //根据response的sourceid，找到对应的Scarchpad的地址和bank号，回填数据
         when(io.LocalMMUIO.Response.valid){
+            //Trick注意这个设计，是doublebuffer的，AB只能是doublebuffer，回数一定是不会堵的，而且我们有时间对数据进行压缩解压缩～
+            //如果要做release设计，要么数据位宽翻倍，腾出周期来使得有空泡能给写任务进行，要么就是数据位宽不变，将读写端口变成独立的读和独立的写端口
             TotalLoadSize := TotalLoadSize + 1.U
             val sourceId = io.LocalMMUIO.Response.bits.ReseponseSourceID
             val ScratchpadBankId = SoureceIdSearchTable(sourceId).ScratchpadBankId

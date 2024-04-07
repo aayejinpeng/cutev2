@@ -23,6 +23,7 @@ class AScratchpad extends Module with HWParameters{
     })
 
     
+    //TODO:这里需要加读写优先级的逻辑，目前在Loader、DataController里面都加了FIFO，能保证一些堵的情况的发生
 
     //当前ScarchPad被选为工作ScarchPad
     val DataControllerChosen = io.ScarchPadIO.FromDataController.Chosen

@@ -5,254 +5,144 @@ import chisel3._
 import chisel3.util._
 import org.chipsalliance.cde.config._
 import boom.exu.ygjk._
+import boom.util._
 
-//MAC32,一个32位数乘累加器，一个乘法延迟为MACLatency，icb次累加
-// class MAC32 extends Module with HWParameters{
-//     val io = IO(new Bundle{
-//         val Ain = Flipped(DecoupledIO(UInt(ALineDWidth.W)))
-//         val Bin = Flipped(DecoupledIO(UInt(ALineDWidth.W)))
-//         val Cout = DecoupledIO(UInt(ALineDWidth.W))
-//         val icb = Flipped(Valid(UInt(icWidth.W)))
-//     })
+    //数据在CScarachpad中的编排
+    //数据会先排N，再排M
+    //   N 0 1 2 3 4 5 6 7     CScaratchpadData里的排布
+    // M                               {bank    [0]         [1]}
+    // 0   0 1 2 3 4 5 6 7   |addr    0 |    0123,89ab   ghij,opgr 
+    // 1   8 9 a b c d e f   |        1 |    4567,cdef   klmn,stuv 
+    // 2   g h i j k l m n   |        2 |    wxyz,!...   @...,#... 
+    // 3   o p g r s t u v   |        3 |    ....,....   ....,....
+    // 4   w x y z .......   |        4 |    ....,....   ....,.... 
+    // 5   !..............   |        5 |    ....,....   ....,....
+    // 6   @..............   |        6 |    ....,....   ....,....
+    // 7   #..............   |        7 |    ....,....   ....,.... 
+    // 8   $..............   | ....................................
 
-//     val icb = RegInit(0.U(icWidth.W))
-//     val icbi = RegInit(0.U(icWidth.W))
-//     val res = RegInit(VecInit(Seq.fill(2)(0.U(ALineDWidth.W))))
-//     val res_v = RegInit(VecInit(Seq.fill(2)(false.B)))
-//     val resfout = RegInit(0.U(1.W))
-//     val resfmac = RegInit(0.U(1.W))
 
-//     when(io.icb.valid){
-//         icb := io.icb.bits
-//     }
-// //    printf(p"PE icbi $icbi\n")
-
-//     io.Ain.ready := (res_v(0)^res_v(1) && icb - icbi > MAC32Latency.U) || !res_v.reduce(_|_) //在PE中保证valid信号同时来到
-//     io.Bin.ready := (res_v(0)^res_v(1) && icb - icbi > MAC32Latency.U) || !res_v.reduce(_|_)
-
-//     val addIn = Pipe(io.Ain.fire()&&io.Bin.fire(), io.Ain.bits*io.Bin.bits, MAC32Latency)
-//     when(addIn.valid){
-//       when(icbi+1.U===icb){
-//         icbi := 0.U
-//         res_v(resfmac) := true.B
-//         resfmac := resfmac ^ 1.U
-//       }.otherwise{
-//         icbi := icbi + 1.U
-//       }
-//       res(resfmac) := res(resfmac) + addIn.bits
-//     }
-
-//     io.Cout.valid := res_v(resfout)
-//     io.Cout.bits := res(resfout)
-//     when(io.Cout.fire()){
-//       res_v(resfout) := false.B
-//       res(resfout) := 0.U
-//       resfout := resfout ^ 1.U
-//     }
-// }
-
-// //16位MAC，配合矩阵外积做A中同行连续两个16位和B中同列连续两个16位的数分别相乘再加(数据拼接由PE模块完成)，结果是一个32位数，icb和32位保持统一，实际是icb的2倍, 16位数乘1拍加1拍完成
-// class MAC16 extends Module with HWParameters{
-//     val io = IO(new Bundle{
-//         val Ain = Flipped(DecoupledIO(UInt(ALineDWidth.W)))
-//         val Bin = Flipped(DecoupledIO(UInt(ALineDWidth.W)))
-//         val Cout = DecoupledIO(UInt(ALineDWidth.W))
-//         val icb = Flipped(Valid(UInt(icWidth.W)))
-//     })
-
-//     val icb = RegInit(0.U(icWidth.W))
-//     val icbi = RegInit(0.U(icWidth.W))
-//     val res = RegInit(VecInit(Seq.fill(2)(0.U(ALineDWidth.W))))
-//     val res_v = RegInit(VecInit(Seq.fill(2)(false.B)))
-//     val resfout = RegInit(0.U(1.W))
-//     val resfmac = RegInit(0.U(1.W))
-//     val mulRes1 = RegInit(0.U(ALineDWidth.W))
-//     val mulRes2 = RegInit(0.U(ALineDWidth.W))
-//     val mulResV = RegInit(false.B)
-
-//     when(io.icb.valid){
-//         icb := io.icb.bits
-//     }
-// //    printf(p"PE icbi $icbi\n")
-
-//     io.Ain.ready := (res_v(0)^res_v(1) && icb - icbi > MAC16Latency.U) || !res_v.reduce(_|_) //在PE中保证valid信号同时来到
-//     io.Bin.ready := (res_v(0)^res_v(1) && icb - icbi > MAC16Latency.U) || !res_v.reduce(_|_)
-
-//     mulRes1 := io.Ain.bits(ALineDWidth/2-1, 0) * io.Bin.bits(ALineDWidth-1, ALineDWidth/2)
-//     mulRes2 := io.Ain.bits(ALineDWidth-1, ALineDWidth/2) * io.Bin.bits(ALineDWidth/2-1, 0)
-//     mulResV := io.Ain.fire() && io.Bin.fire()
-//     when(mulResV){
-//       when(icbi+1.U===icb){
-//         icbi := 0.U
-//         res_v(resfmac) := true.B
-//         resfmac := resfmac ^ 1.U
-//       }.otherwise{
-//         icbi := icbi + 1.U
-//       }
-//       res(resfmac) := res(resfmac) + mulRes1 + mulRes2
-//     }
-
-//     io.Cout.valid := res_v(resfout)
-//     io.Cout.bits := res(resfout)
-//     when(io.Cout.fire()){
-//       res_v(resfout) := false.B
-//       res(resfout) := 0.U
-//       resfout := resfout ^ 1.U
-//     }
-// }
-
-// //8位MAC，原理和16位一样，是4个数乘累加
-// class MAC8 extends Module with HWParameters{
-//     val io = IO(new Bundle{
-//         val Ain = Flipped(DecoupledIO(UInt(ALineDWidth.W)))
-//         val Bin = Flipped(DecoupledIO(UInt(ALineDWidth.W)))
-//         val Cout = DecoupledIO(UInt(ALineDWidth.W))
-//         val icb = Flipped(Valid(UInt(icWidth.W)))
-//     })
-
-//     val icb = RegInit(0.U(icWidth.W))
-//     val icbi = RegInit(0.U(icWidth.W))
-//     val res = RegInit(VecInit(Seq.fill(2)(0.U(ALineDWidth.W))))
-//     val res_v = RegInit(VecInit(Seq.fill(2)(false.B)))
-//     val resfout = RegInit(0.U(1.W))
-//     val resfmac = RegInit(0.U(1.W))
-//     val mulRes1 = RegInit(0.U(ALineDWidth.W))
-//     val mulRes2 = RegInit(0.U(ALineDWidth.W))
-//     val mulRes3 = RegInit(0.U(ALineDWidth.W))
-//     val mulRes4 = RegInit(0.U(ALineDWidth.W))
-//     val mulResV = RegInit(false.B)
-
-//     when(io.icb.valid){
-//         icb := io.icb.bits
-//     }
-// //    printf(p"PE icbi $icbi\n")
-
-//     io.Ain.ready := (res_v(0)^res_v(1) && icb - icbi > MAC8Latency.U) || !res_v.reduce(_|_) //在PE中保证valid信号同时来到
-//     io.Bin.ready := (res_v(0)^res_v(1) && icb - icbi > MAC8Latency.U) || !res_v.reduce(_|_)
-
-//     mulRes1 := io.Ain.bits(ALineDWidth/4-1, 0) * io.Bin.bits(ALineDWidth-1, ALineDWidth/4*3)
-//     mulRes2 := io.Ain.bits(ALineDWidth/2-1, ALineDWidth/4) * io.Bin.bits(ALineDWidth/4*3-1, ALineDWidth/2)
-//     mulRes3 := io.Ain.bits(ALineDWidth/4*3-1, ALineDWidth/2) * io.Bin.bits(ALineDWidth/2-1, ALineDWidth/4)
-//     mulRes4 := io.Ain.bits(ALineDWidth-1, ALineDWidth/4*3) * io.Bin.bits(ALineDWidth/4-1, 0)
-//     mulResV := io.Ain.fire() && io.Bin.fire()
-//     when(mulResV){
-//       when(icbi+1.U===icb){
-//         icbi := 0.U
-//         res_v(resfmac) := true.B
-//         resfmac := resfmac ^ 1.U
-//       }.otherwise{
-//         icbi := icbi + 1.U
-//       }
-//       res(resfmac) := res(resfmac) + mulRes1 + mulRes2 + mulRes3 + mulRes4
-//     }
-
-//     io.Cout.valid := res_v(resfout)
-//     io.Cout.bits := res(resfout)
-//     when(io.Cout.fire()){
-//       res_v(resfout) := false.B
-//       res(resfout) := 0.U
-//       resfout := resfout ^ 1.U
-//     }
-// }
-
-// //单个PE, 计算矩阵乘,计算A*B，+C在C供数模块处理
-// class PE extends Module with HWParameters{
-//     val io = IO(new Bundle{
-//       val icb = Flipped(Valid(UInt(icWidth.W)))
-//       val datatype = Flipped(Valid(UInt(3.W)))
-//       val A2PE = Flipped(DecoupledIO(Vec(PEHigh,UInt(ALineDWidth.W))))
-//       val B2PE = Flipped(DecoupledIO(Vec(PEWidth,UInt(ALineDWidth.W))))
-//       val PE2C = DecoupledIO(Vec(PEHigh,Vec(PEWidth,UInt(ALineDWidth.W))))
-//     })
-
-// //    printf(p"PE A2PE ${io.A2PE.valid} ${io.A2PE.ready} Bin ${io.B2PE.valid} ${io.B2PE.ready} Cout ${io.PE2C.ready} ${io.PE2C.valid}\n")
-
-//     val dataType = RegInit(0.U(3.W))
-//     when(io.datatype.valid){
-//       dataType := io.datatype.bits
-//     }
-
-//     //PE矩阵,PEHigh*PEWidth个MAC,这个其实是单个TE的配置
-//     val matrix32 = VecInit.tabulate(PEHigh, PEWidth){(x,y) => Module(new MAC32).io}
-//     val matrix16 = VecInit.tabulate(PEHigh, PEWidth){(x,y) => Module(new MAC16).io}
-//     val matrix8 = VecInit.tabulate(PEHigh, PEWidth){(x,y) => Module(new MAC8).io}
-
-//     //结果队列
-//     val resq = RegInit(VecInit.tabulate(MACresq, PEHigh*PEWidth){(a,b) => 0.U(ALineDWidth.W)})
-//     val resq_vn = RegInit(0.U(log2Ceil(MACresq).W))
-//     val reshead = RegInit(0.U(log2Ceil(MACresq).W))
-//     val restail = RegInit(0.U(log2Ceil(MACresq).W))
-//     val resqFull = reshead===(restail+1.U)(log2Ceil(MACresq)-1, 0)
+    //TODO:这里就是有两个设计选项的
+    //矩阵乘结果出来后，如果有逐元素的DSP部件，那就是npu的形状              ---> SOC上的NPU！        ～  ultra --> 不足的L3总带宽+不足的热功耗
+    //如果矩阵乘结果出来后，如果没有逐元素的DSP部件，那就是矩阵乘部件的形状    ---> 通用多核/众核AI处理器 ～  dojo --> 充足的L3带宽+冗余的计算能力
     
-//     //要保证AB数据同时握手
-//     io.A2PE.ready := Mux(dataType===1.U,matrix32(0)(0).Ain.ready && resq_vn < (MACresq-MAC32Latency).U && io.B2PE.valid, 
-//                      Mux(dataType===2.U,matrix16(0)(0).Ain.ready && resq_vn < (MACresq-MAC16Latency).U &&  io.B2PE.valid, 
-//                                         matrix8(0)(0).Ain.ready && resq_vn < (MACresq-MAC8Latency).U &&  io.B2PE.valid))   
-//     io.B2PE.ready := Mux(dataType===1.U,matrix32(0)(0).Bin.ready && resq_vn < (MACresq-MAC32Latency).U && io.A2PE.valid, 
-//                      Mux(dataType===2.U,matrix16(0)(0).Bin.ready && resq_vn < (MACresq-MAC16Latency).U &&  io.A2PE.valid, 
-//                                         matrix8(0)(0).Bin.ready && resq_vn < (MACresq-MAC8Latency).U &&  io.A2PE.valid))  
-//     for{
-//       i <- 0 until PEHigh
-//       j <- 0 until PEWidth
-//     } yield {
-//       matrix32(i)(j).icb := io.icb
-//       matrix32(i)(j).Ain.valid := io.A2PE.fire() && dataType===1.U
-//       matrix32(i)(j).Ain.bits := io.A2PE.bits(i)
-//       matrix32(i)(j).Bin.valid := io.B2PE.fire() && dataType===1.U
-//       matrix32(i)(j).Bin.bits := io.B2PE.bits(j)
-//       matrix32(i)(j).Cout.ready := !resqFull  && dataType===1.U
 
-//       matrix16(i)(j).icb := io.icb
-//       matrix16(i)(j).Ain.valid := io.A2PE.fire() && dataType===2.U
-//       matrix16(i)(j).Ain.bits := io.A2PE.bits(i)
-//       matrix16(i)(j).Bin.valid := io.B2PE.fire() && dataType===2.U
-//       matrix16(i)(j).Bin.bits := Cat(io.B2PE.bits(j/2)((j&1)*16+15,(j&1)*16), io.B2PE.bits(j/2+2)((j&1)*16+15,(j&1)*16))
-//       matrix16(i)(j).Cout.ready := !resqFull  && dataType===2.U
+    //但是这里的reorder部件是一定要有的，方便后续的数据编排和处理，让输入和输出的数据排布一致。
+    //为什么在这里，因为我们的PE计算完后，在这里是第一次全逐个联线，所以这里是最合适的地方。
 
-//       matrix8(i)(j).icb := io.icb
-//       matrix8(i)(j).Ain.valid := io.A2PE.fire() && dataType===4.U
-//       matrix8(i)(j).Ain.bits := io.A2PE.bits(i)
-//       matrix8(i)(j).Bin.valid := io.B2PE.fire() && dataType===4.U
-//       matrix8(i)(j).Bin.bits := Cat(Cat(io.B2PE.bits(0)(j*8+7, j*8), io.B2PE.bits(1)(j*8+7, j*8)), 
-//                                     Cat(io.B2PE.bits(2)(j*8+7, j*8), io.B2PE.bits(3)(j*8+7, j*8)))
-//       matrix8(i)(j).Cout.ready := !resqFull  && dataType===4.U
-//     }
 
-//     when(matrix32(0)(0).Cout.fire() || matrix16(0)(0).Cout.fire() || matrix8(0)(0).Cout.fire()){
-//       for{
-//         i <- 0 until PEHigh
-//         j <- 0 until PEWidth
-//       } yield {
-//         resq(restail)(i*PEWidth+j) := Mux(dataType===1.U, matrix32(i)(j).Cout.bits,
-//                                       Mux(dataType===2.U, matrix16(i)(j).Cout.bits, matrix8(i)(j).Cout.bits)) 
-//       }
-//       when(restail+1.U===MACresq.U){
-//         restail := 0.U
-//       }.otherwise{
-//         restail := restail + 1.U
-//       }
-//     }
 
-//     io.PE2C.valid := restail =/= reshead
-//     for{
-//         i <- 0 until PEHigh
-//         j <- 0 until PEWidth
-//     } yield {
-//         io.PE2C.bits(i)(j) := resq(reshead)(i*PEWidth+j) 
-//     }
-//     when(io.PE2C.fire()){
-//       when(reshead+1.U===MACresq.U){
-//         reshead := 0.U
-//       }.otherwise{
-//         reshead := reshead + 1.U
-//       }
-//     }
+class CScarchPadIO extends Bundle with HWParameters{
+    val FromDataController = new CDataControlScaratchpadIO
+    val FromMemoryLoader = new CMemoryLoaderScaratchpadIO
+}
 
-//     when((matrix32(0)(0).Cout.fire() || matrix16(0)(0).Cout.fire() || matrix8(0)(0).Cout.fire()) && !io.PE2C.fire()){
-//       resq_vn := resq_vn + 1.U
-//     }.elsewhen(!(matrix32(0)(0).Cout.fire() || matrix16(0)(0).Cout.fire() || matrix8(0)(0).Cout.fire()) && io.PE2C.fire()){
-//       resq_vn := resq_vn - 1.U
-//     }
+class CScratchpad extends Module with HWParameters{
+    val io = IO(new Bundle{
+        // val ConfigInfo = Flipped(DecoupledIO(new ConfigInfoIO))
+        val ScarchPadIO = new CScarchPadIO
+    })
+    
+    // //当前ScarchPad被选为工作ScarchPad
+    // val DataControllerChosen = io.ScarchPadIO.FromDataController.Chosen
+    // //当前ScarchPad的各个bank的请求地址
+    // val DataControllerBankAddr = io.ScarchPadIO.FromDataController.ReadBankAddr.bits
+    // //当前ScarchPad的返回的值
+    // val DataControllerData = io.ScarchPadIO.FromDataController.ReadResponseData.bits
 
-// }
+    // //Scaratchpad的被MemoryLoader选中
+    // val MemoryLoaderChosen = io.ScarchPadIO.FromMemoryLoader.Chosen
+    
+    //根据读写请求的优先级，确定当前周期服务的是哪个请求
+    val DataControllerReadWriteRequest = io.ScarchPadIO.FromDataController.ReadWriteRequest
+    val MemoryControllerReadWriteRequest = io.ScarchPadIO.FromMemoryLoader.ReadWriteRequest
+    val ReadWriteRequest = DataControllerReadWriteRequest | MemoryControllerReadWriteRequest //这里其实可以拼接
+
+    //只选择一个请求，进行服务,先来个时间片轮转?或者来个检查，看谁的fifo最深。
+    //这么看一个时间片轮转就还挺不错的，如果k=4，则只需要4个周期处理到一次DataContrller来的一次读和一次写就行了
+    val FirstRequestIndex = RegInit(0.U(log2Ceil(ScaratchpadTaskType.TaskTypeBitWidth).W))
+    FirstRequestIndex := WrapInc(FirstRequestIndex, ScaratchpadTaskType.TaskTypeBitWidth)
+    //选择一个离FirstRequestIndex最近的请求
+    val FirstIndex = FirstRequestIndex
+    val SecIndex = WrapInc(FirstRequestIndex, ScaratchpadTaskType.TaskTypeBitWidth)
+    val ThirdIndex = WrapInc(SecIndex, ScaratchpadTaskType.TaskTypeBitWidth)
+    val FourthIndex = WrapInc(ThirdIndex, ScaratchpadTaskType.TaskTypeBitWidth)
+
+    val HasRequest = ReadWriteRequest.andR
+    //根据请求的优先级，确定当前周期服务的是哪个请求
+    val ChoseIndex_0 = Mux(ReadWriteRequest(FirstIndex), FirstIndex,
+                    Mux(ReadWriteRequest(SecIndex), SecIndex,
+                    Mux(ReadWriteRequest(ThirdIndex), ThirdIndex,
+                    Mux(ReadWriteRequest(FourthIndex), FourthIndex, 0.U))))
+    
+    val RequestResponse = VecInit(Seq.fill(ScaratchpadTaskType.TaskTypeBitWidth)(false.B))
+    RequestResponse(ChoseIndex_0) := true.B
+    
+    //单个读写端口，只用选一个ChoseIndex_0，根据ChosenIndex，读写端口的信号
+    //读写请求？
+    //地址线？
+    //数据线？
+    // val SramAddr_0 = Wire(Vec(CScratchpadNBanks, (UInt(log2Ceil(CScratchpadBankNEntrys).W))))
+    
+
+    val SramAddr_0 = PriorityMux(ChoseIndex_0, Seq(
+        io.ScarchPadIO.FromDataController.ReadBankAddr.bits,
+        io.ScarchPadIO.FromDataController.WriteRequestData.bits,
+        VecInit(Seq.fill(CScratchpadNBanks)(io.ScarchPadIO.FromMemoryLoader.ReadRequestToScarchPad.BankAddr.bits)),
+        VecInit(Seq.fill(CScratchpadNBanks)(io.ScarchPadIO.FromMemoryLoader.WriteRequestToScarchPad.BankAddr.bits))
+    ))
+
+    val SramIsWrite_0 = Mux((ChoseIndex_0 === ScaratchpadTaskType.WriteFromDataControllerIndex.U) || (ChoseIndex_0 === ScaratchpadTaskType.WriteFromMemoryLoaderIndex.U), true.B, false.B) && HasRequest
+    val SramIsRead_0  = !SramIsWrite_0 && HasRequest
+
+    //TODO:这里的参数还是有问题的，我们得想明白为什么要分bank，分bank核心是为了让Slidingwindows可以取数，如果数据我们在送入ScarchPad前组织好的，就不需要分bank了
+    //TODO:TODO:TODO:目前的问题在于FromMemoryLoader.WriteRequestToScarchPad.Data.bits的宽度
+    //TODO:需要修改这个Vec，让他每次回数都只占用一个周期，这样性能才能好，需要在MemoryLoader中完成拼接才可以，这样送进来的就是和数据带宽一致的数据，没有带宽的浪费
+    //这个用MUX写
+    val SramWriteData_0 = PriorityMux(ChoseIndex_0, Seq(
+        io.ScarchPadIO.FromDataController.WriteRequestData.bits,
+        io.ScarchPadIO.FromDataController.WriteRequestData.bits,
+        VecInit(Seq.fill(CScratchpadNBanks)(0.U)),
+        VecInit(Seq.fill(CScratchpadNBanks)(0.U))
+    ))
+    
+    
+    
+    //记录当前拍回数应该返回给哪条数据线
+    val PreReadChosen_0 = RegNext(ChoseIndex_0)
+    val PreIsRead_0 = RegNext(SramIsRead_0)
+
+    //实例化多个sram为多个bank
+    val sram_banks = (0 until CScratchpadNBanks) map { i =>
+
+        //一个SeqMem就是一个SRAM，在一拍内完成读写，结果在下一拍输出，所以后头的代码里有s0，s1对不同阶段的流水数据进行分类，好区分每个周期的数据
+        val bank = SyncReadMem(CScratchpadBankNEntrys, Bits(width = CScratchpadEntrySize.W))
+        bank.suggestName("CUTE-C-Scratchpad-SRAM")
+        
+        //第0周期的数据
+        val s0_bank_read_addr = SramAddr_0(i)
+        val s0_bank_read_valid = SramIsRead_0 && HasRequest
+        //第1周期的数据
+        val s1_bank_read_data = bank.read(s0_bank_read_addr,s0_bank_read_valid).asUInt
+        // val s1_bank_read_addr = RegEnable(s0_bank_read_addr, s0_bank_read_valid)
+        // val s1_bank_read_valid = RegNext(s0_bank_read_valid)
+        io.ScarchPadIO.FromDataController.ReadResponseData.bits(i) := s1_bank_read_data
+        io.ScarchPadIO.FromDataController.ReadResponseData.valid := ((PreReadChosen_0 ===  ScaratchpadTaskType.ReadFromDataControllerIndex.U) && PreIsRead_0)
+        io.ScarchPadIO.FromMemoryLoader.ReadRequestToScarchPad.ReadResponseData.bits(i) := s1_bank_read_data
+        io.ScarchPadIO.FromMemoryLoader.ReadRequestToScarchPad.ReadResponseData.valid := (PreReadChosen_0 === ScaratchpadTaskType.ReadFromMemoryLoaderIndex.U && PreIsRead_0)
+        //读取数据的fifo得在DataController里面自己实现，ScarchPad尽可能减少逻辑，符合SRAM的特性，所以上面的代码只有valid和data，没有ready
+        
+        //写数据
+        val s0_bank_write_addr = Mux(SramIsWrite_0, SramAddr_0(i), 0.U)
+        val s0_bank_write_data = Mux(SramIsWrite_0, SramWriteData_0(i), 0.U)
+        val s0_bank_write_valid = SramIsWrite_0 && HasRequest
+        when(s0_bank_write_valid){
+            bank.write(s0_bank_write_addr, s0_bank_write_data)
+        }
+
+        bank
+    }
+
+
+}
 

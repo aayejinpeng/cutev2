@@ -97,9 +97,9 @@ class ADataController extends Module with HWParameters{
 
     //TODO:这里是否需要一个这样的除法电路？实际上一个截断/移位电路就可以了？因为我们一定是整数倍的，多余的地方补0即可。
     //如果是除法电路，这里需要几拍？其实不会，Matrix_M一定是2的幂次，所有这个除法一定会被优化成移位，一定是一拍完成的，一定会优化成移位电路
-    val M_IteratorMax = (ScaratchpadWorkingTensor_M / Matrix_M.U)
-    val N_IteratorMax = (ScaratchpadWorkingTensor_N / Matrix_N.U)
-    val K_IteratorMax = (ScaratchpadWorkingTensor_K)
+    val M_IteratorMax = (ScaratchpadWorkingTensor_M / Matrix_M.U) - 1.U
+    val N_IteratorMax = (ScaratchpadWorkingTensor_N / Matrix_N.U) - 1.U
+    val K_IteratorMax = (ScaratchpadWorkingTensor_K) - 1.U
 
     //如果是mm_task,且计算状态机是init，那么就开始初始化
     when(state === s_mm_task){
@@ -117,6 +117,7 @@ class ADataController extends Module with HWParameters{
             when(ScarchPadData.valid){
                 //计算取数地址
                 //TODO:同样的问题，这里是否需要一个乘法电路？估计会被EDA优化成移位电路
+                //TrickTODO:这里可以添加Realse的逻辑了，在Datacontroller和MemoryLoader之间添加一个同步的Realse表
                 next_addr := M_Iterator * K_IteratorMax + K_Iterator + 1.U
                 ScarchPadRequestBankAddr.bits.foreach(_ := next_addr)
                 ScarchPadRequestBankAddr.valid := true.B
@@ -150,6 +151,7 @@ class ADataController extends Module with HWParameters{
                 N_Iterator := N_Iterator
                 M_Iterator := M_Iterator
             }
+            //TODO:这里默认AVector是默认握手的，如果不能默认握手，需要一个FIFO缓冲这部分数据
             io.VectorA.valid := ScarchPadData.valid
             io.VectorA.bits := ScarchPadData.bits.asTypeOf(io.VectorA.bits) //这里是顺序摆放，卷积可以重新组合
         }.elsewhen(calculate_state === s_cal_end){
