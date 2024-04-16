@@ -18,6 +18,7 @@ import freechips.rocketchip.tile._
 import boom.ifu._
 import boom.exu._
 import boom.lsu._
+import boom.acc.cute.CUTECrossingParams
 
 // ---------------------
 // BOOM Config Fragments
@@ -202,6 +203,48 @@ class WithNSmallWidenBooms(n: Int = 1, overrideIdOffset: Option[Int] = None) ext
   })
 )
 
+class WithNSmallWidenBoomsCUTEMemPort(n: Int = 1, overrideIdOffset: Option[Int] = None) extends Config(
+  new WithTAGELBPD ++ // Default to TAGE-L BPD
+  new Config((site, here, up) => {
+    case TilesLocated(InSubsystem) => {
+      val prev = up(TilesLocated(InSubsystem), site)
+      val idOffset = overrideIdOffset.getOrElse(prev.size)
+      (0 until n).map { i =>
+        BoomTileAttachParams(
+          tileParams = BoomTileParams(
+            core = BoomCoreParams(
+              fetchWidth = 16,
+              decodeWidth = 1,
+              numRobEntries = 32,
+              issueParams = Seq(
+                IssueParams(issueWidth=1, numEntries=8, iqType=IQT_MEM.litValue, dispatchWidth=1),
+                IssueParams(issueWidth=1, numEntries=8, iqType=IQT_INT.litValue, dispatchWidth=1),
+                IssueParams(issueWidth=1, numEntries=8, iqType=IQT_FP.litValue , dispatchWidth=1)),
+              numIntPhysRegisters = 52,
+              numFpPhysRegisters = 48,
+              numLdqEntries = 8,
+              numStqEntries = 8,
+              maxBrCount = 8,
+              numFetchBufferEntries = 32,
+              ftq = FtqParameters(nEntries=32),
+              nPerfCounters = 2,
+              fpu = Some(freechips.rocketchip.tile.FPUParams(sfmaLatency=4, dfmaLatency=4, divSqrt=true))
+            ),
+            dcache = Some(
+              DCacheParams(rowBits = 256, nSets=64, nWays=4, nMSHRs=2, nTLBWays=8)
+            ),
+            icache = Some(
+              ICacheParams(rowBits = 256, nSets=64, nWays=4, fetchBytes=8*4)
+            ),
+            hartId = i + idOffset
+          ),
+          crossingParams = new CUTECrossingParams()
+        )
+      } ++ prev
+    }
+    case XLen => 64
+  })
+)
 /**
  * 2-wide BOOM.
  */

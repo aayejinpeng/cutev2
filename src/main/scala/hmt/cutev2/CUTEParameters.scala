@@ -167,9 +167,21 @@ class ConfigInfoIO extends Bundle with HWParameters with YGJKParameters{
     val ScaratchpadTensor_N = (UInt(ScaratchpadMaxTensorDimBitSize.W)) //Scaratchpad当前处理的矩阵乘的N
     val ScaratchpadTensor_K = (UInt(ScaratchpadMaxTensorDimBitSize.W)) //Scaratchpad当前处理的矩阵乘的K
 
-    val taskType = (UInt(ElementDataType.DataTypeBitWidth.W)) //0-矩阵乘，1-卷积
-    val dataType = (UInt(CUTETaskType.CUTETaskBitWidth.W)) //1-32位，2-16位， 4-32位
-    val ExternalReduceSize = (UInt(ScaratchpadMaxTensorDimBitSize.W))
+    val ScaratchpadChosen = (new Bundle {
+        val ADataControllerChosenIndex = UInt(1.W)
+        val BDataControllerChosenIndex = UInt(1.W)
+        val CDataControllerChosenIndex = UInt(1.W)
+
+        val AMemoryLoaderChosenIndex = UInt(1.W)
+        val BMemoryLoaderChosenIndex = UInt(1.W)
+        val CMemoryLoaderChosenIndex = UInt(1.W)
+    })
+
+
+
+    val dataType = (UInt(ElementDataType.DataTypeBitWidth.W)) //0-矩阵乘，1-卷积
+    val taskType = (UInt(CUTETaskType.CUTETaskBitWidth.W)) //1-32位，2-16位， 4-32位
+    // val ExternalReduceSize = (UInt(ScaratchpadMaxTensorDimBitSize.W))
     val CMemoryLoaderConfig = (new Bundle{
         val MemoryOrder = (UInt(MemoryOrderType.MemoryOrderTypeBitWidth.W))
         val TaskType = (UInt(CMemoryLoaderTaskType.TypeBitWidth.W))
@@ -202,6 +214,26 @@ class AMemoryLoaderScaratchpadIO extends Bundle with HWParameters{
     //chosen是选择该ScarchPad的信号，是一个bool，我们做doublebuffer，选择其一供数，选择其一加载数据
     val Chosen = Input(Bool())
 }
+
+class BDataControlScaratchpadIO extends Bundle with HWParameters{
+    //bankaddr是对nbanks个bank，各自bank的行选信号,是一个vec，有nbanks个元素，每个元素是一个UInt，UInt的宽度是log2Ceil(AScratchpadBankNLines)，是输入的需要握手的数据
+    val BankAddr = Flipped(DecoupledIO(Vec(BScratchpadNBanks, (UInt(log2Ceil(BScratchpadBankNEntrys).W)))))
+    //bankdata是对nbanks个bank，各自bank的行数据，是一个vec，有nbanks个元素，每个元素是一个UInt，UInt的宽度是ReduceWidthByte*8
+    val Data = Valid(Vec(BScratchpadNBanks, UInt(ReduceWidth.W)))
+    //chosen是选择该ScarchPad的信号，是一个bool，我们做doublebuffer，选择其一供数，选择其一加载数据
+    val Chosen = Input(Bool())
+}
+
+class BMemoryLoaderScaratchpadIO extends Bundle with HWParameters{
+    //bankaddr是对nbanks个bank，各自bank的行选信号,是一个vec，有nbanks个元素，每个元素是一个UInt，UInt的宽度是log2Ceil(AScratchpadBankNLines)，是输入的需要握手的数据
+    val BankId = Flipped(Valid(UInt(log2Ceil(BScratchpadNBanks).W)))
+    val BankAddr = Flipped(Valid(UInt(log2Ceil(BScratchpadBankNEntrys).W)))
+    //bankdata是对nbanks个bank，各自bank的行数据，是一个vec，有nbanks个元素，每个元素是一个UInt，UInt的宽度是ReduceWidthByte*8
+    val Data = Flipped(Valid(UInt(ReduceWidth.W)))
+    //chosen是选择该ScarchPad的信号，是一个bool，我们做doublebuffer，选择其一供数，选择其一加载数据
+    val Chosen = Input(Bool())
+}
+
 
 class CDataControlScaratchpadIO extends Bundle with HWParameters{
     //bankaddr是对nbanks个bank，各自bank的行选信号,是一个vec，有nbanks个元素，每个元素是一个UInt，UInt的宽度是log2Ceil(AScratchpadBankNLines)，是输入的需要握手的数据
@@ -278,6 +310,7 @@ case object  CMemoryLoaderTaskType extends Field[UInt]{
     val TaskTypeUndef = 0.U(TypeBitWidth.W)
     val TaskTypeTensorStore = 1.U(TypeBitWidth.W)
     val TaskTypeTensorLoad = 2.U(TypeBitWidth.W)
+    val TaskTypeTensorZeroLoad = 3.U(TypeBitWidth.W) //直接将数据填充为0，实际上是什么也没做，默认可以写入SRAM，无视以前SRAM里面的数据即可
 }
 case object  MemoryOrderType extends Field[UInt]{
     val MemoryOrderTypeBitWidth = 8
@@ -303,4 +336,18 @@ case object ScaratchpadTaskType extends Field[UInt]{
     val WriteFromDataControllerIndex = 1
     val WriteFromMemoryLoaderIndex = 2
     val ReadFromMemoryLoaderIndex = 3
+}
+
+class ScaratchpadTask extends Bundle with HWParameters{
+    // * Elements defined earlier in the Bundle are higher order upon
+    // * serialization. For example:
+    // *   val bundle = Wire(new MyBundle)
+    // *   bundle.foo := 0x1234.U
+    // *   bundle.bar := 0x5678.U
+    // *   val uint = bundle.asUInt
+    // *   assert(uint === "h12345678".U) // This will pass
+    val ReadFromMemoryLoader = Bool()
+    val WriteFromMemoryLoader = Bool()
+    val WriteFromDataController = Bool()
+    val ReadFromDataController = Bool()
 }

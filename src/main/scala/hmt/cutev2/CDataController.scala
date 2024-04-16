@@ -26,13 +26,16 @@ class CDataController extends Module with HWParameters{
     //TODO:init
     io.Matrix_C.valid := false.B
     io.Matrix_C.bits := DontCare
-    io.ResultMatrix_D.valid := false.B
-    io.ResultMatrix_D.bits := DontCare
+    io.ResultMatrix_D.ready := false.B
     io.ConfigInfo.ready := false.B
     io.TaskEnd.ready := false.B
     io.SwitchScarchPad.bits := false.B
     io.SwitchScarchPad.valid := false.B
     io.FromScarchPadIO.Chosen := false.B
+    io.FromScarchPadIO.WriteBankAddr.valid := false.B
+    io.FromScarchPadIO.WriteBankAddr.bits := DontCare
+    io.FromScarchPadIO.WriteRequestData.valid := false.B
+    io.FromScarchPadIO.WriteRequestData.bits := DontCare    
     
 
     val ScarchPadReadRequestBankAddr = io.FromScarchPadIO.ReadBankAddr
@@ -137,8 +140,8 @@ class CDataController extends Module with HWParameters{
     val InputFIFOReady = RegInit(false.B)
     
     //对Scaratchpad的数据请求
-    val ReadRequest = Wire(Bool())
-    val WriteRequset = Wire(Bool())
+    val ReadRequest = WireInit(false.B)
+    val WriteRequset = WireInit(false.B)
 
     //如果是mm_task,且计算状态机是init，那么就开始初始化
     when(state === s_mm_task){
@@ -243,7 +246,7 @@ class CDataController extends Module with HWParameters{
         }.elsewhen(store_calculate_state === s_cal_working){
             //阶段2，计算开始，计算对Scarchpad的取数地址
             //循环的最外层是M，然后是N
-            val store_addr = Wire(UInt(log2Ceil(CScratchpadBankNEntrys).W))
+            val store_addr = WireInit(0.U(log2Ceil(CScratchpadBankNEntrys).W))
             //如果ResultMatrix_D有效，那么我们就把数据存入Scartchpad
             //此时要看是否当前的任务是被选中的任务
             
@@ -304,6 +307,12 @@ class CDataController extends Module with HWParameters{
     //像Scrartchpad请求数据的汇总
     //使用各自的值进行拼接，最低位代表Read，次低位代表Write，最高位代表Memory的Write
     //叫给Scarchpad来进行仲裁
-    io.FromScarchPadIO.ReadWriteRequest := Cat(0.U(1.W),Cat(WriteRequset,ReadRequest))
+    //TODO:这里最好是拼一个正常的
+    val request = Wire(new ScaratchpadTask)
+    request.ReadFromMemoryLoader := false.B
+    request.WriteFromMemoryLoader := false.B
+    request.WriteFromDataController := WriteRequset
+    request.ReadFromDataController := ReadRequest
+    io.FromScarchPadIO.ReadWriteRequest := request.asUInt
     
 }

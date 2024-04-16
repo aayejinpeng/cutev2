@@ -19,8 +19,8 @@ import boom.exu.ygjk._
 //注意，数据的reorder是可以离线完成的！这也属于编译器的一环。
 
 class ASourceIdSearch extends Bundle with HWParameters{
-    val ScratchpadBankId = 0.U(log2Ceil(AScratchpadNBanks).W)
-    val ScratchpadAddr = 0.U(log2Ceil(AScratchpadBankNEntrys).W)
+    val ScratchpadBankId = UInt(log2Ceil(AScratchpadNBanks).W)
+    val ScratchpadAddr = UInt(log2Ceil(AScratchpadBankNEntrys).W)
 }
 
 class AMemoryLoader extends Module with HWParameters{
@@ -32,6 +32,21 @@ class AMemoryLoader extends Module with HWParameters{
         val MemoryLoadEnd = DecoupledIO(Bool())
         val TaskEnd = Flipped(DecoupledIO(Bool()))
     })
+    //TODO:init
+    io.ToScarchPadIO.BankAddr.valid := false.B
+    io.ToScarchPadIO.BankAddr.bits := 0.U
+    io.ToScarchPadIO.BankId.valid := false.B
+    io.ToScarchPadIO.BankId.bits := 0.U
+    io.ToScarchPadIO.Data.valid := false.B
+    io.ToScarchPadIO.Data.bits := 0.U
+    io.ToScarchPadIO.Chosen := false.B
+    io.LocalMMUIO.Request.valid := false.B
+    io.LocalMMUIO.Request.bits := DontCare
+    io.ConfigInfo.ready := false.B
+    io.MemoryLoadEnd.valid := false.B
+    io.MemoryLoadEnd.bits := false.B
+    io.TaskEnd.ready := false.B
+
 
     val ScaratchpadBankAddr = io.ToScarchPadIO.BankAddr
     val ScaratchpadData = io.ToScarchPadIO.Data
@@ -57,7 +72,7 @@ class AMemoryLoader extends Module with HWParameters{
     val memoryload_state = RegInit(s_load_idle)
     val MemoryOrder_LoadConfig = RegInit(MemoryOrderType.OrderTypeUndef) 
 
-    val Tensor_Block_BaseAddr = (UInt(MMUAddrWidth.W)) //分块矩阵的基地址
+    val Tensor_Block_BaseAddr = Reg(UInt(MMUAddrWidth.W)) //分块矩阵的基地址
 
     val Conherent = RegInit(true.B) //是否一致性访存的标志位，由TaskController提供
 
@@ -66,6 +81,7 @@ class AMemoryLoader extends Module with HWParameters{
     //TODO:Taskcontroller负责对数据切块，并提供MemoryLoader的配置信息，起始位置，大小，数据排布等等
     
     //如果configinfo有效
+    io.ConfigInfo.ready := false.B //TODO:
     when(io.ConfigInfo.valid){
         when(io.ConfigInfo.bits.taskType === CUTETaskType.TaskTypeMatrixMul){
             when(state === s_idle){
@@ -112,7 +128,7 @@ class AMemoryLoader extends Module with HWParameters{
     //一个cam来存储访存请求的source_id对应的Scarchpad的地址和bank号
     //用sourceid做索引，存储Scarchpad的地址和bank号，是一组寄存器
     
-    val SoureceIdSearchTable = VecInit(Seq.fill(SoureceMaxNum){RegInit(new ASourceIdSearch)})
+    val SoureceIdSearchTable = RegInit(VecInit(Seq.fill(SoureceMaxNum)(0.U((new ASourceIdSearch).getWidth.W))))
 
     
     val Request = io.LocalMMUIO.Request
@@ -135,7 +151,7 @@ class AMemoryLoader extends Module with HWParameters{
             
             val sourceId = Mux(Conherent,io.LocalMMUIO.ConherentRequsetSourceID,io.LocalMMUIO.nonConherentRequsetSourceID)
             Request.bits.RequestConherent := Conherent
-            Request.bits.RequestSourceID := sourceId
+            Request.bits.RequestSourceID := sourceId.bits
             Request.bits.RequestType_isWrite := false.B
             Request.valid := sourceId.valid && Request.ready
 
@@ -159,8 +175,10 @@ class AMemoryLoader extends Module with HWParameters{
             // 在内存中的排布则是 0 1 2 3 4 5 6 7 8 9 a b c d e f g h i j k l m n o p q r s t u v w x y z .......
 
             when(Request.ready && sourceId.valid){
-                SoureceIdSearchTable(sourceId.bits).ScratchpadBankId := CurrentLoaded_BlockTensor_M % AScratchpadNBanks.U
-                SoureceIdSearchTable(sourceId.bits).ScratchpadAddr := ((CurrentLoaded_BlockTensor_M / AScratchpadNBanks.U) * Tensor_K.U) + CurrentLoaded_BlockTensor_K
+                val TableItem = Wire(new ASourceIdSearch)
+                TableItem.ScratchpadBankId := CurrentLoaded_BlockTensor_M % AScratchpadNBanks.U
+                TableItem.ScratchpadAddr := ((CurrentLoaded_BlockTensor_M / AScratchpadNBanks.U) * Tensor_K.U) + CurrentLoaded_BlockTensor_K
+                SoureceIdSearchTable(sourceId.bits) := TableItem.asUInt
                 when(MemoryOrder_LoadConfig === MemoryOrderType.OrderType_Mb_Kb){
                     //只要这条取数指令可以被发出，就计算下一个访存请求的地址
                     //TODO:这里数据读取量定死了，需要为了支持边界情况，改一改
@@ -189,8 +207,8 @@ class AMemoryLoader extends Module with HWParameters{
             //如果要做release设计，要么数据位宽翻倍，腾出周期来使得有空泡能给写任务进行，要么就是数据位宽不变，将读写端口变成独立的读和独立的写端口
             TotalLoadSize := TotalLoadSize + 1.U
             val sourceId = io.LocalMMUIO.Response.bits.ReseponseSourceID
-            val ScratchpadBankId = SoureceIdSearchTable(sourceId).ScratchpadBankId
-            val ScratchpadAddr = SoureceIdSearchTable(sourceId).ScratchpadAddr
+            val ScratchpadBankId = SoureceIdSearchTable(sourceId).asTypeOf(new ASourceIdSearch).ScratchpadBankId
+            val ScratchpadAddr = SoureceIdSearchTable(sourceId).asTypeOf(new ASourceIdSearch).ScratchpadAddr
             val ResponseData = io.LocalMMUIO.Response.bits.ReseponseData
             //需要一个fifo？TODO:需要fifo的设计是可能这里会堵，实际上我们满吞吐的doublebuff的设计，咱们这里是不会堵的，直接填就完事了？还是等总线上去握手？
             //Scartchpad->MemoryLoader->MMU->Memory Bus->Memory上的长组合逻辑链，可以实现一下，为后续的开发做准备

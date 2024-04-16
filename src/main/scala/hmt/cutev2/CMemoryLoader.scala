@@ -20,9 +20,9 @@ import boom.util._
 //注意，数据的reorder是可以离线完成的！这也属于编译器的一环。
 
 class CSourceIdSearch extends Bundle with HWParameters{
-    val ScratchpadBankId = 0.U(log2Ceil(CScratchpadNBanks).W)
-    val ScratchpadAddr = 0.U(log2Ceil(CScratchpadBankNEntrys).W)
-    val FIFOIndex = 0.U(log2Ceil(CMemoryLoaderReadFromMemoryFIFODepth).W)
+    val ScratchpadBankId =UInt(log2Ceil(CScratchpadNBanks).W)
+    val ScratchpadAddr = UInt(log2Ceil(CScratchpadBankNEntrys).W)
+    val FIFOIndex = UInt(log2Ceil(CMemoryLoaderReadFromMemoryFIFODepth).W)
 }
 
 class CMemoryLoader extends Module with HWParameters{
@@ -35,6 +35,15 @@ class CMemoryLoader extends Module with HWParameters{
         val MemoryLoadEnd = DecoupledIO(Bool())
         val TaskEnd = Flipped(DecoupledIO(Bool()))
     })
+
+    io.ConfigInfo.ready := false.B
+    io.MemoryLoadEnd.valid := false.B
+    io.MemoryLoadEnd.bits := false.B
+    io.TaskEnd.ready := false.B
+    io.ToScarchPadIO := DontCare
+    io.LocalMMUReadRequest := DontCare
+    io.LocalMMUWriteRequest := DontCare
+
 
     
     // val ScaratchpadBankAddr = io.ToScarchPadIO.BankAddr
@@ -54,12 +63,16 @@ class CMemoryLoader extends Module with HWParameters{
     val s_idle :: s_mm_task :: s_write :: Nil = Enum(3) //TODO:新增状态，这里要加各种计算状态，mm，sliding window之类的
     val state = RegInit(s_idle)
 
-    //访存状态机，用来配合流水线刷新
+    //访存读状态机，用来配合流水线刷新
     val s_load_idle :: s_load_init :: s_load_working :: s_load_end :: Nil = Enum(4)
     val memoryload_state = RegInit(s_load_idle)
     val MemoryOrder_LoadConfig = RegInit(MemoryOrderType.OrderTypeUndef)
 
-    val Tensor_Block_BaseAddr = (UInt(MMUAddrWidth.W)) //分块矩阵的基地址
+    //访存写状态机，用来配合流水线刷新
+    val s_store_idle :: s_store_init :: s_store_working :: s_store_end :: Nil = Enum(4)
+    val memorystore_state = RegInit(s_store_idle)
+
+    val Tensor_Block_BaseAddr = Reg(UInt(MMUAddrWidth.W)) //分块矩阵的基地址
 
     val IsConherent = RegInit(true.B) //是否一致性访存的标志位，由TaskController提供
 
@@ -113,7 +126,8 @@ class CMemoryLoader extends Module with HWParameters{
     //一个cam来存储访存请求的source_id对应的Scarchpad的地址和bank号
     //用sourceid做索引，存储Scarchpad的地址和bank号，是一组寄存器
     
-    val SoureceIdSearchTable = VecInit(Seq.fill(SoureceMaxNum){RegInit(new CSourceIdSearch)})
+    // val SoureceIdSearchTable = VecInit(Seq.fill(SoureceMaxNum){RegInit(new CSourceIdSearch)})
+    val SoureceIdSearchTable = RegInit(VecInit(Seq.fill(SoureceMaxNum)(0.U((new CSourceIdSearch).getWidth.W))))
     
     
     //读数的FIFO
@@ -180,16 +194,21 @@ class CMemoryLoader extends Module with HWParameters{
             
 
             ReadRequest.bits.RequestConherent := IsConherent
-            ReadRequest.bits.RequestSourceID := sourceId
+            ReadRequest.bits.RequestSourceID := sourceId.bits
             ReadRequest.bits.RequestType_isWrite := false.B
             ReadRequest.valid := sourceId.valid && !FromMemoryLoaderReadFIFOFull && (TotalRequestSize < MaxRequestIter.U)
 
             
             //确定这个访存请求一定会发出
             when(ReadRequest.ready){
-                SoureceIdSearchTable(sourceId.bits).ScratchpadBankId := RequestScratchpadBankId
+                val TableItem = Wire(new CSourceIdSearch)
+                TableItem.ScratchpadBankId := RequestScratchpadBankId
+                TableItem.FIFOIndex := CurrentFIFOIndex
+                TableItem.ScratchpadAddr := 0.U
+                SoureceIdSearchTable(sourceId.bits) := TableItem.asUInt
+                // SoureceIdSearchTable(sourceId.bits).ScratchpadBankId := RequestScratchpadBankId
                 // SoureceIdSearchTable(sourceId.bits).ScratchpadAddr := RequestScratchpadAddr
-                SoureceIdSearchTable(sourceId.bits).FIFOIndex := CurrentFIFOIndex
+                // SoureceIdSearchTable(sourceId.bits).FIFOIndex := CurrentFIFOIndex
                 //如果当前的BankID就是等于最后一个，那就可以使用一个新的FIFO Entry，如果FIFO满了就不能发出请求！！
                 when(CurrentBankID === (CScratchpadNBanks-1).U){
                     FromMemoryLoaderReadFIFOHead := WrapInc(FromMemoryLoaderReadFIFOHead, CMemoryLoaderReadFromMemoryFIFODepth)
@@ -211,15 +230,15 @@ class CMemoryLoader extends Module with HWParameters{
         //根据response的sourceid，找到对应的Scarchpad的地址和bank号，回填数据
         when(io.LocalMMUReadRequest.Response.valid){
             val sourceId = io.LocalMMUReadRequest.Response.bits.ReseponseSourceID
-            val ScratchpadBankId = SoureceIdSearchTable(sourceId).ScratchpadBankId
-            val ScratchpadAddr = SoureceIdSearchTable(sourceId).ScratchpadAddr
-            val FIFOIndex = SoureceIdSearchTable(sourceId).FIFOIndex
+            val ScratchpadBankId = SoureceIdSearchTable(sourceId).asTypeOf(new CSourceIdSearch).ScratchpadBankId
+            val ScratchpadAddr = SoureceIdSearchTable(sourceId).asTypeOf(new CSourceIdSearch).ScratchpadAddr
+            val FIFOIndex = SoureceIdSearchTable(sourceId).asTypeOf(new CSourceIdSearch).FIFOIndex
             val ResponseData = io.LocalMMUReadRequest.Response.bits.ReseponseData
             
             FromMemoryLoaderReadFIFO(FIFOIndex)(ScratchpadBankId) := ResponseData
             FromMemoryLoaderReadFIFOValid(FIFOIndex)(ScratchpadBankId) := true.B
         }
-        
+
     }.elsewhen(memoryload_state === s_load_end){
         memoryload_state := s_load_idle
     }.otherwise{
@@ -231,7 +250,8 @@ class CMemoryLoader extends Module with HWParameters{
         
         val MaxLoadIter = (Tensor_M * Tensor_N * ResultWidthByte) / (CScratchpadEntrySize) / (CScratchpadNBanks)
 
-        io.ToScarchPadIO.ReadWriteRequest(ScaratchpadTaskType.WriteFromMemoryLoaderIndex) := true.B
+        // io.ToScarchPadIO.ReadWriteRequest(ScaratchpadTaskType.WriteFromMemoryLoaderIndex) := true.B
+        io.ToScarchPadIO.ReadWriteRequest.asTypeOf(new ScaratchpadTask).WriteFromMemoryLoader := true.B
 
         when(io.ToScarchPadIO.ReadWriteResponse(ScaratchpadTaskType.WriteFromMemoryLoaderIndex) === true.B){
             //根据ScartchPad的仲裁结果，我们可以写入数据了
@@ -259,8 +279,7 @@ class CMemoryLoader extends Module with HWParameters{
     }
 
     //写数请求
-    val s_store_idle :: s_store_init :: s_store_working :: s_store_end :: Nil = Enum(4)
-    val memorystore_state = RegInit(s_store_idle)
+
 
     val TotalStoreSize = RegInit(0.U((log2Ceil(Tensor_M*Tensor_N)).W)) //总共存储的数据量，这个参数表示已经对MMU发出的存储请求次数
     val TotalStoreRequestSize = RegInit(0.U((log2Ceil(Tensor_M*Tensor_N)).W)) //总共读取的请求数据量，这个参数表示已经对ScartchPad发出的读请求次数
@@ -299,7 +318,7 @@ class CMemoryLoader extends Module with HWParameters{
 
             //请求ScartchPad，需要从ScartchPad中取数，请求来自MemoryLoader
             
-            io.ToScarchPadIO.ReadWriteRequest(ScaratchpadTaskType.ReadFromMemoryLoaderIndex) := true.B
+            io.ToScarchPadIO.ReadWriteRequest.asTypeOf(new ScaratchpadTask).ReadFromMemoryLoader := true.B
             //计算读取的ScartchPad的地址，计算读取的ScartchPad的bank号，这里可以把所有bank的数据取出来，也可以分不同bank取，建议所有bank都取出来，这样可以减少读取的次数
             val MaxLoadFromScratchpadIter = CScratchpadBankNEntrys
             

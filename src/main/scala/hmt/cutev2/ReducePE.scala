@@ -22,6 +22,8 @@ class ReduceMACTree8 extends Module with HWParameters{
     //Chosen置高，该加法树工作被选择为工作加法树
     //working置高，在加法树工作中
     //完成加法树部分即可，ABC fire，且Ready置高，则DResult置valid
+    
+    //累加ExternalReduceSize次，完成一次计算，置DResult为valid
 
     //TODO:init
     io.AVector.ready := false.B
@@ -79,7 +81,7 @@ class ReducePE extends Module with HWParameters{
         val AddC    = Flipped(DecoupledIO(UInt(ReduceWidth.W)))
         val ResultD = DecoupledIO(UInt(ResultWidth.W))
         val ConfigInfo = Flipped(DecoupledIO(new ConfigInfoIO))
-        val ExternalReduceSize = Flipped(DecoupledIO(UInt(ScaratchpadMaxTensorDimBitSize.W)))
+        // val ExternalReduceSize = Flipped(DecoupledIO(UInt(ScaratchpadMaxTensorDimBitSize.W)))
     })
 
     //TODO:init
@@ -91,12 +93,16 @@ class ReducePE extends Module with HWParameters{
     io.ConfigInfo.ready := false.B
 
 
+    //ReducePE和MatrixTE需要一个对于externalReduce的处理，以提高热效率，提供主频，减少对CScratchPad的访问
+    //ExternalReduce是指，我们的Scarchpad内的Tensor的K维大于1时，可以减少从CScratchPad的访问数据，让ReducePE使用自己暂存的累加结果后，再存至CScratchPad
+    //Trick：再来，这里的K越大，我们的CSratchPad的平均访问次数就越少，就可以使用更慢更大的SRAM
     val ReduceMAC8 = Module(new ReduceMACTree8)
     ReduceMAC8.io.AVector <> io.ReduceA
     ReduceMAC8.io.BVector <> io.ReduceB
     ReduceMAC8.io.CAdd    <> io.AddC
     ReduceMAC8.io.Chosen  := false.B
     ReduceMAC8.io.FIFOReady   := false.B
+    ReduceMAC8.io.ExternalReduceSize := Tensor_K.U
 
     val ReduceMAC16 = Module(new ReduceMACTree16)
     ReduceMAC16.io.AVector <> io.ReduceA
@@ -104,6 +110,7 @@ class ReducePE extends Module with HWParameters{
     ReduceMAC16.io.CAdd    <> io.AddC
     ReduceMAC16.io.Chosen  := false.B
     ReduceMAC16.io.FIFOReady   := false.B
+    ReduceMAC16.io.ExternalReduceSize := Tensor_K.U
 
     val ReduceMAC32 = Module(new ReduceMACTree32)
     ReduceMAC32.io.AVector <> io.ReduceA
@@ -111,6 +118,7 @@ class ReducePE extends Module with HWParameters{
     ReduceMAC32.io.CAdd    <> io.AddC
     ReduceMAC32.io.Chosen  := false.B
     ReduceMAC32.io.FIFOReady   := false.B
+    ReduceMAC32.io.ExternalReduceSize := Tensor_K.U
 
     //只有在数据类型匹配时才能进行计算
     //在Reduce内完成数据的握手，及所有数据准备好后才能进行计算，并用一个fifo保存ResultD，等待ResultD被握手
@@ -121,10 +129,7 @@ class ReducePE extends Module with HWParameters{
     val ResultFIFOEmpty = ResultFIFOHead === ResultFIFOTail
     val ResultFIFOValid = RegInit(false.B)
 
-    //ReducePE和MatrixTE需要一个对于externalReduce的处理，以提高热效率，提供主频，减少对CScratchPad的访问
-    //ExternalReduce是指，我们的Scarchpad内的Tensor的K维大于1时，可以减少从CScratchPad的访问数据，让ReducePE使用自己暂存的累加结果后，再存至CScratchPad
-    //Trick：再来，这里的K越大，我们的CSratchPad的平均访问次数就越少，就可以使用更慢更大的SRAM
-    val ExternalReduceSize = io.ExternalReduceSize
+
     //数据类型，整个计算过程中只有一个数据类型，ConfigInfo不会改变
     val dataType = RegInit(ElementDataType.DataTypeUndef)
     //PE不工作且FIFO为空时，才能接受新的配置信息

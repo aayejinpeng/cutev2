@@ -14,6 +14,8 @@ import boom.exu.ygjk._
 class AScarchPadIO extends Bundle with HWParameters{
     val FromDataController = new ADataControlScaratchpadIO
     val FromMemoryLoader = new AMemoryLoaderScaratchpadIO 
+    val DataControllerValid = Input(Bool())
+    val MemoryLoaderValid = Input(Bool())
 }
 
 class AScratchpad extends Module with HWParameters{

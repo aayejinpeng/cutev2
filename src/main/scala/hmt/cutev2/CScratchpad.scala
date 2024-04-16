@@ -35,6 +35,8 @@ import boom.util._
 class CScarchPadIO extends Bundle with HWParameters{
     val FromDataController = new CDataControlScaratchpadIO
     val FromMemoryLoader = new CMemoryLoaderScaratchpadIO
+    val DataControllerValid = Input(Bool())
+    val MemoryLoaderValid = Input(Bool())
 }
 
 class CScratchpad extends Module with HWParameters{
@@ -84,10 +86,12 @@ class CScratchpad extends Module with HWParameters{
     //数据线？
     // val SramAddr_0 = Wire(Vec(CScratchpadNBanks, (UInt(log2Ceil(CScratchpadBankNEntrys).W))))
     
-
-    val SramAddr_0 = PriorityMux(ChoseIndex_0, Seq(
+    val ChoseOneHot_0 = UIntToOH(ChoseIndex_0)
+    io.ScarchPadIO.FromDataController.ReadWriteResponse := ChoseOneHot_0
+    io.ScarchPadIO.FromMemoryLoader.ReadWriteResponse := ChoseOneHot_0
+    val SramAddr_0 = PriorityMux(ChoseOneHot_0, Seq(
         io.ScarchPadIO.FromDataController.ReadBankAddr.bits,
-        io.ScarchPadIO.FromDataController.WriteRequestData.bits,
+        io.ScarchPadIO.FromDataController.WriteBankAddr.bits,
         VecInit(Seq.fill(CScratchpadNBanks)(io.ScarchPadIO.FromMemoryLoader.ReadRequestToScarchPad.BankAddr.bits)),
         VecInit(Seq.fill(CScratchpadNBanks)(io.ScarchPadIO.FromMemoryLoader.WriteRequestToScarchPad.BankAddr.bits))
     ))
@@ -99,11 +103,11 @@ class CScratchpad extends Module with HWParameters{
     //TODO:TODO:TODO:目前的问题在于FromMemoryLoader.WriteRequestToScarchPad.Data.bits的宽度
     //TODO:需要修改这个Vec，让他每次回数都只占用一个周期，这样性能才能好，需要在MemoryLoader中完成拼接才可以，这样送进来的就是和数据带宽一致的数据，没有带宽的浪费
     //这个用MUX写
-    val SramWriteData_0 = PriorityMux(ChoseIndex_0, Seq(
+    val SramWriteData_0 = PriorityMux(ChoseOneHot_0, Seq(
         io.ScarchPadIO.FromDataController.WriteRequestData.bits,
         io.ScarchPadIO.FromDataController.WriteRequestData.bits,
-        VecInit(Seq.fill(CScratchpadNBanks)(0.U)),
-        VecInit(Seq.fill(CScratchpadNBanks)(0.U))
+        VecInit(Seq.fill(CScratchpadNBanks)(0.U(CScratchpadEntrySize.W))),
+        VecInit(Seq.fill(CScratchpadNBanks)(0.U(CScratchpadEntrySize.W)))
     ))
     
     

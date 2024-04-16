@@ -27,6 +27,7 @@ import boom.ifu._
 import boom.lsu._
 import boom.util.{BoomCoreStringPrefix}
 import freechips.rocketchip.prci.ClockSinkParameters
+import boom.acc.cute.BuildDMAygjk
 
 
 case class BoomTileAttachParams(
@@ -83,6 +84,8 @@ class BoomTile private(
   val intOutwardNode = IntIdentityNode()
   val masterNode = TLIdentityNode()
   val slaveNode = TLIdentityNode()
+
+  override val memoryDirectNode: TLIdentityNode = TLIdentityNode()
 
   val tile_master_blocker =
     tileParams.blockerCtrlAddr
@@ -146,6 +149,15 @@ class BoomTile private(
   val roccs = p(BuildRoCC).map(_(p))
   roccs.map(_.atlNode).foreach { atl => tlMasterXbar.node :=* atl }
   roccs.map(_.tlNode).foreach { tl => tlOtherMastersNode :=* tl }
+
+  //如果p()中有BuildDMAygjk，那么就会执行下面的代码
+  if (p(BuildDMAygjk) == true) {
+    roccs.map(_.DMANode).foreach { dma => dmaMastersNode :=* dma }
+    memoryDirectNode :=* dmaMastersNode
+  }else{
+    roccs.map(_.DMANode).foreach { tl => tlOtherMastersNode :=* tl }
+  }
+
 }
 
 /**
