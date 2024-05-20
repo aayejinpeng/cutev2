@@ -9,21 +9,22 @@ import freechips.rocketchip.subsystem._
 import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.prci._
 import freechips.rocketchip.tile._
+import boom.common.BoomBundle
 // import freechips.rocketchip.regmapper.RRTest0Map
 
 case class MMAccConfig()
 case object MMAccKey extends Field[Option[MMAccConfig]](None)
 case object BuildDMAygjk extends Field[Seq[Parameters => LazyRoCC]](Nil)
-class Withacc_MMacc extends Config((site,here,up) => {  
-    case BuildYGAC =>
-        (p:Parameters) => {          
-            val myAccel = Module(new MMacc)
-            myAccel
-        }
-    case MMAccKey => true
-    case BuildDMAygjk => true
-    }
-)
+// class Withacc_MMacc extends Config((site,here,up) => {  
+//     case BuildYGAC =>
+//         (p:Parameters) => {          
+//             val myAccel = Module(new MMacc)
+//             myAccel
+//         }
+//     case MMAccKey => true
+//     case BuildDMAygjk => true
+//     }
+// )
 
 class CUTECrossingParams(
   override val MemDirectMaster: TilePortParamsLike = TileMasterPortParams(where = MBUS)
@@ -82,21 +83,21 @@ trait HWParameters{
 
 //目前的Scratchpad设计，分Tensor_T个bank，每次取Tensor_T个数据，根据取数逻辑，在不同的bank里取不同的数据，然后拼接
 
-    val AScratchpadEntrySize = ReduceWidthByte //用这个参数才这个才合理吧？直接切Bank数量好像有点不妥？
-    val BScratchpadEntrySize = ReduceWidthByte 
-    val CScratchpadEntrySize = LLCDataWidthByte //这个比较合适的是LLC的带宽
+    val AScratchpadEntryByteSize = ReduceWidthByte //用这个参数才这个才合理吧？直接切Bank数量好像有点不妥？
+    val BScratchpadEntryByteSize = ReduceWidthByte 
+    val CScratchpadEntryByteSize = LLCDataWidthByte //这个比较合适的是LLC的带宽
 
     val AScratchpadNBanks = Matrix_M //注意这里与Matrix_M有强相关性，一般是Matrix_M的整数倍
     val BScratchpadNBanks = Matrix_N //这里与Matrix_N强相关
-    val CScratchpadNBanks = Matrix_M*Matrix_N*ResultWidthByte/CScratchpadEntrySize //4*4*4/32 = 2//这里与Tensor_K强相关，同时读写任务～以及SRAM的各种参数
+    val CScratchpadNBanks = Matrix_M*Matrix_N*ResultWidthByte/CScratchpadEntryByteSize //4*4*4/32 = 2//这里与Tensor_K强相关，同时读写任务～以及SRAM的各种参数
 
 
     val AScratchpadBankSize = AScratchpadSize / AScratchpadNBanks
     val BScratchpadBankSize = BScratchpadSize / BScratchpadNBanks
     val CScratchpadBankSize = CScratchpadSize / CScratchpadNBanks
-    val AScratchpadBankNEntrys = AScratchpadBankSize / AScratchpadEntrySize
-    val BScratchpadBankNEntrys = BScratchpadBankSize / BScratchpadEntrySize
-    val CScratchpadBankNEntrys = CScratchpadBankSize / CScratchpadEntrySize
+    val AScratchpadBankNEntrys = AScratchpadBankSize / AScratchpadEntryByteSize
+    val BScratchpadBankNEntrys = BScratchpadBankSize / BScratchpadEntryByteSize
+    val CScratchpadBankNEntrys = CScratchpadBankSize / CScratchpadEntryByteSize
 
 
 //MACLatency 用于ReducePE内的乘累加树的延迟描述
@@ -118,7 +119,7 @@ trait HWParameters{
 //                ic, oh, ow, kh, kw, ohb -- 外层循环次数,
 //                icb -- 矩阵乘计算中的中间长度
 //                paddingH, paddingW, strideH, strideW -- 卷积层属性
-class ConfigInfoIO extends Bundle with HWParameters with YGJKParameters{
+class ConfigInfoIO(implicit p: Parameters) extends BoomBundle with HWParameters with YGJKParameters{
     // val oc = Flipped(Valid(UInt(ocWidth.W)))               //对应reorder分块后的oc层循环次数
     // val ic = Flipped(Valid(UInt(icWidth.W)))               //对应reorder分块后的ic层循环次数
     // val ih = Flipped(Valid(UInt(ohWidth.W)))
@@ -137,7 +138,7 @@ class ConfigInfoIO extends Bundle with HWParameters with YGJKParameters{
     // val Aaddr = Flipped(Valid(UInt(addrWidth.W))) //A矩阵首地址
     // val Baddr = Flipped(Valid(UInt(addrWidth.W))) //B矩阵首地址
     // val Caddr = Flipped(Valid(UInt(addrWidth.W))) //C矩阵首地址
-    
+    val MMUConfig = Flipped(new MMUConfigIO)
     val ApplicationTensor_A = (new Bundle{
         val ApplicationTensor_A_BaseVaddr = (UInt(MMUAddrWidth.W))
         val BlockTensor_A_BaseVaddr       = (UInt(MMUAddrWidth.W))
@@ -240,8 +241,8 @@ class CDataControlScaratchpadIO extends Bundle with HWParameters{
     val ReadBankAddr = Flipped(Valid(Vec(CScratchpadNBanks, (UInt(log2Ceil(CScratchpadBankNEntrys).W)))))
     val WriteBankAddr = Flipped(Valid(Vec(CScratchpadNBanks, (UInt(log2Ceil(CScratchpadBankNEntrys).W)))))
     //bankdata是对nbanks个bank，各自bank的行数据，是一个vec，有nbanks个元素，每个元素是一个UInt
-    val ReadResponseData = Valid(Vec(CScratchpadNBanks, UInt(CScratchpadEntrySize.W)))
-    val WriteRequestData = Flipped(Valid(Vec(CScratchpadNBanks, UInt(CScratchpadEntrySize.W))))
+    val ReadResponseData = Valid(Vec(CScratchpadNBanks, UInt(LLCDataWidth.W)))
+    val WriteRequestData = Flipped(Valid(Vec(CScratchpadNBanks, UInt(LLCDataWidth.W))))
     //chosen是选择该ScarchPad的信号，是一个bool，我们做doublebuffer，选择其一供数，选择其一加载数据
     val ReadWriteRequest = Input(UInt((ScaratchpadTaskType.TaskTypeBitWidth).W))
     val ReadWriteResponse = Output(UInt((ScaratchpadTaskType.TaskTypeBitWidth).W))
@@ -253,12 +254,12 @@ class CMemoryLoaderScaratchpadIO extends Bundle with HWParameters{
         val FullBankLoad = Input(Bool())
         val BankId = Flipped(Valid(UInt(log2Ceil(CScratchpadNBanks).W)))
         val BankAddr = Flipped(Valid(UInt(log2Ceil(CScratchpadBankNEntrys).W)))
-        val ReadResponseData = (Valid(Vec(CScratchpadNBanks, UInt(CScratchpadEntrySize.W))))
+        val ReadResponseData = (Valid(Vec(CScratchpadNBanks, UInt(LLCDataWidth.W))))
     })
     val WriteRequestToScarchPad = (new Bundle{
         // val BankId = Flipped(Valid(UInt(log2Ceil(CScratchpadNBanks).W)))
         val BankAddr = Flipped(Valid(UInt(log2Ceil(CScratchpadBankNEntrys).W)))
-        val Data = Flipped(Valid(Vec(CScratchpadNBanks, UInt(CScratchpadEntrySize.W))))
+        val Data = Flipped(Valid(Vec(CScratchpadNBanks, UInt(LLCDataWidth.W))))
     })
 
     val ReadWriteRequest = Input(UInt((ScaratchpadTaskType.TaskTypeBitWidth).W))
@@ -269,17 +270,41 @@ class CMemoryLoaderScaratchpadIO extends Bundle with HWParameters{
 //LocalMMU的接口
 class LocalMMUIO extends Bundle with HWParameters{
 
+    //发出的访存请求
     val Request = Flipped(DecoupledIO(new Bundle{
         val RequestVirtualAddr = UInt(MMUAddrWidth.W)
         val RequestConherent = Bool()
         val RequestData = UInt(MMUDataWidth.W)
         val RequestSourceID = UInt(SoureceMaxNumBitSize.W)
-        val RequestType_isWrite = UInt(2.W) //0-读，1-写
+        val RequestType_isWrite = Bool()
     }))
     //读请求分发到的TL Link的事务编号
     val ConherentRequsetSourceID = Valid(UInt(LLCSourceMaxNumBitSize.W))
     val nonConherentRequsetSourceID = Valid(UInt(MemorysourceMaxNumBitSize.W))
 
+    //Memoryloader一定能保证收回！
+    val Response = Valid(new Bundle{
+        val ReseponseData = UInt(MMUDataWidth.W)
+        val ReseponseConherent = Bool()
+        val ReseponseSourceID = UInt(SoureceMaxNumBitSize.W)
+    })
+}
+
+class MMU2TLIO extends Bundle with HWParameters{
+
+    //发出的访存请求
+    val Request = Flipped(DecoupledIO(new Bundle{
+        val RequestPhysicalAddr = UInt(MMUAddrWidth.W)
+        val RequestConherent = Bool()
+        val RequestData = UInt(MMUDataWidth.W)
+        val RequestSourceID = UInt(SoureceMaxNumBitSize.W)
+        val RequestType_isWrite = Bool()
+    }))
+    //读请求分发到的TL Link的事务编号
+    val ConherentRequsetSourceID = Valid(UInt(LLCSourceMaxNumBitSize.W))
+    val nonConherentRequsetSourceID = Valid(UInt(MemorysourceMaxNumBitSize.W))
+
+    //Memoryloader一定能保证收回！
     val Response = Valid(new Bundle{
         val ReseponseData = UInt(MMUDataWidth.W)
         val ReseponseConherent = Bool()
@@ -350,4 +375,13 @@ class ScaratchpadTask extends Bundle with HWParameters{
     val WriteFromMemoryLoader = Bool()
     val WriteFromDataController = Bool()
     val ReadFromDataController = Bool()
+}
+
+case object LocalMMUTaskType extends Field[UInt]{
+    val TaskTypeBitWidth = 2
+    val TaskTypeMax = 3
+    val AFirst = 0.U(TaskTypeBitWidth.W)
+    val BFirst = 1.U(TaskTypeBitWidth.W)
+    val CFirst = 2.U(TaskTypeBitWidth.W)
+    // val DFirst = 3.U(TaskTypeBitWidth.W)
 }

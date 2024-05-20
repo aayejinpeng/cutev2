@@ -23,7 +23,7 @@ class BSourceIdSearch extends Bundle with HWParameters{
     val ScratchpadAddr = UInt(log2Ceil(BScratchpadBankNEntrys).W)
 }
 
-class BMemoryLoader extends Module with HWParameters{
+class BMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
     val io = IO(new Bundle{
         //先整一个ScarchPad的接口的总体设计
         val ToScarchPadIO = Flipped(new BMemoryLoaderScaratchpadIO)
@@ -153,8 +153,10 @@ class BMemoryLoader extends Module with HWParameters{
             Request.bits.RequestConherent := Conherent
             Request.bits.RequestSourceID := sourceId.bits
             Request.bits.RequestType_isWrite := false.B
-            Request.valid := sourceId.valid && Request.ready
-
+            Request.valid := true.B
+            when(MemoryOrder_LoadConfig === MemoryOrderType.OrderType_Nb_Kb && CurrentLoaded_BlockTensor_N === Tensor_N.U){
+                Request.valid := false.B
+            }
 
             //数据在Scarachpad中的编排
             //数据会先排K，再排M
@@ -174,7 +176,9 @@ class BMemoryLoader extends Module with HWParameters{
             //
             // 在内存中的排布则是 0 1 2 3 4 5 6 7 8 9 a b c d e f g h i j k l m n o p q r s t u v w x y z .......
 
-            when(Request.ready && sourceId.valid){
+            
+            when(Request.ready && sourceId.valid){//符合条件的话，这条访存请求一定会被发出
+                //Request.ready表明了LocalMMU会处理这条访存请求，sourceID valid，表明这条访存请求的sourceID是被LocalMMU认可有效才发送到这个模块的
                 val TableItem = Wire(new BSourceIdSearch)
                 TableItem.ScratchpadBankId := CurrentLoaded_BlockTensor_N % BScratchpadNBanks.U
                 TableItem.ScratchpadAddr := ((CurrentLoaded_BlockTensor_N / BScratchpadNBanks.U) * Tensor_K.U) + CurrentLoaded_BlockTensor_K
@@ -185,8 +189,8 @@ class BMemoryLoader extends Module with HWParameters{
                     //只要这条取数指令可以被发出，就计算下一个访存请求的地址
                     //TODO:这里数据读取量定死了，需要为了支持边界情况，改一改
                     //不过我们保证了数据是256bit对齐的～剩下的就是Tensor_N和Tensor_K不满足的情况思考好就行了
-                    val MaxBlockTensor_N_Index = Tensor_N - 1
-                    val MaxBlockTensor_K_Index = Tensor_K - 1
+                    val MaxBlockTensor_N_Index = Tensor_N
+                    val MaxBlockTensor_K_Index = Tensor_K
                     when(CurrentLoaded_BlockTensor_N < MaxBlockTensor_N_Index.U){
                         when(CurrentLoaded_BlockTensor_K < MaxBlockTensor_K_Index.U){
                             //根据不同的内存Order，计算出访存请求的地址
@@ -195,8 +199,6 @@ class BMemoryLoader extends Module with HWParameters{
                             CurrentLoaded_BlockTensor_K := 0.U
                             CurrentLoaded_BlockTensor_N := CurrentLoaded_BlockTensor_N + 1.U
                         }
-                    }.otherwise{
-                        Request.valid := false.B
                     }
                 }
             }
@@ -235,6 +237,13 @@ class BMemoryLoader extends Module with HWParameters{
         memoryload_state := s_load_idle
     }.otherwise{
         memoryload_state := s_load_idle
+        when(io.ConfigInfo.fire){
+            when(io.ConfigInfo.bits.taskType === CUTETaskType.TaskTypeMatrixMul){
+                when(state === s_idle){
+                    memoryload_state := s_load_init
+                }
+            }
+        }
     }
 
 }

@@ -70,7 +70,7 @@ class CScratchpad extends Module with HWParameters{
     val ThirdIndex = WrapInc(SecIndex, ScaratchpadTaskType.TaskTypeBitWidth)
     val FourthIndex = WrapInc(ThirdIndex, ScaratchpadTaskType.TaskTypeBitWidth)
 
-    val HasRequest = ReadWriteRequest.andR
+    val HasRequest = ReadWriteRequest.orR
     //根据请求的优先级，确定当前周期服务的是哪个请求
     val ChoseIndex_0 = Mux(ReadWriteRequest(FirstIndex), FirstIndex,
                     Mux(ReadWriteRequest(SecIndex), SecIndex,
@@ -92,9 +92,9 @@ class CScratchpad extends Module with HWParameters{
     val SramAddr_0 = PriorityMux(ChoseOneHot_0, Seq(
         io.ScarchPadIO.FromDataController.ReadBankAddr.bits,
         io.ScarchPadIO.FromDataController.WriteBankAddr.bits,
-        VecInit(Seq.fill(CScratchpadNBanks)(io.ScarchPadIO.FromMemoryLoader.ReadRequestToScarchPad.BankAddr.bits)),
-        VecInit(Seq.fill(CScratchpadNBanks)(io.ScarchPadIO.FromMemoryLoader.WriteRequestToScarchPad.BankAddr.bits))
-    ))
+        VecInit(Seq.fill(CScratchpadNBanks)(io.ScarchPadIO.FromMemoryLoader.WriteRequestToScarchPad.BankAddr.bits)),
+        VecInit(Seq.fill(CScratchpadNBanks)(io.ScarchPadIO.FromMemoryLoader.ReadRequestToScarchPad.BankAddr.bits)))
+        )
 
     val SramIsWrite_0 = Mux((ChoseIndex_0 === ScaratchpadTaskType.WriteFromDataControllerIndex.U) || (ChoseIndex_0 === ScaratchpadTaskType.WriteFromMemoryLoaderIndex.U), true.B, false.B) && HasRequest
     val SramIsRead_0  = !SramIsWrite_0 && HasRequest
@@ -104,10 +104,10 @@ class CScratchpad extends Module with HWParameters{
     //TODO:需要修改这个Vec，让他每次回数都只占用一个周期，这样性能才能好，需要在MemoryLoader中完成拼接才可以，这样送进来的就是和数据带宽一致的数据，没有带宽的浪费
     //这个用MUX写
     val SramWriteData_0 = PriorityMux(ChoseOneHot_0, Seq(
+        VecInit(Seq.fill(CScratchpadNBanks)(0.U(LLCDataWidth.W))),
         io.ScarchPadIO.FromDataController.WriteRequestData.bits,
-        io.ScarchPadIO.FromDataController.WriteRequestData.bits,
-        VecInit(Seq.fill(CScratchpadNBanks)(0.U(CScratchpadEntrySize.W))),
-        VecInit(Seq.fill(CScratchpadNBanks)(0.U(CScratchpadEntrySize.W)))
+        io.ScarchPadIO.FromMemoryLoader.WriteRequestToScarchPad.Data.bits,
+        VecInit(Seq.fill(CScratchpadNBanks)(0.U(LLCDataWidth.W)))
     ))
     
     
@@ -116,11 +116,17 @@ class CScratchpad extends Module with HWParameters{
     val PreReadChosen_0 = RegNext(ChoseIndex_0)
     val PreIsRead_0 = RegNext(SramIsRead_0)
 
+    //输出所有SramAddr_0
+    for(i <- 0 until CScratchpadNBanks){
+        printf("SramAddr_0[%d] = %d\n", i.U, SramAddr_0(i))
+    }
+    
+
     //实例化多个sram为多个bank
     val sram_banks = (0 until CScratchpadNBanks) map { i =>
 
         //一个SeqMem就是一个SRAM，在一拍内完成读写，结果在下一拍输出，所以后头的代码里有s0，s1对不同阶段的流水数据进行分类，好区分每个周期的数据
-        val bank = SyncReadMem(CScratchpadBankNEntrys, Bits(width = CScratchpadEntrySize.W))
+        val bank = SyncReadMem(CScratchpadBankNEntrys, Bits(width = LLCDataWidth.W))
         bank.suggestName("CUTE-C-Scratchpad-SRAM")
         
         //第0周期的数据
@@ -130,6 +136,12 @@ class CScratchpad extends Module with HWParameters{
         val s1_bank_read_data = bank.read(s0_bank_read_addr,s0_bank_read_valid).asUInt
         // val s1_bank_read_addr = RegEnable(s0_bank_read_addr, s0_bank_read_valid)
         // val s1_bank_read_valid = RegNext(s0_bank_read_valid)
+        // //输出所有回数请求
+        // printf("s0_bank_read_addr[%d] = %d\n", i.U, s0_bank_read_addr)
+        // //输出所有回数的值
+        // printf("s1_bank_read_data[%d] = %d\n", i.U, s1_bank_read_data)
+        // //输出io.ScarchPadIO.FromDataController.ReadResponseData
+        // printf("io.ScarchPadIO.FromDataController.ReadResponseData[%d] = %d\n", i.U, io.ScarchPadIO.FromDataController.ReadResponseData.bits(i))
         io.ScarchPadIO.FromDataController.ReadResponseData.bits(i) := s1_bank_read_data
         io.ScarchPadIO.FromDataController.ReadResponseData.valid := ((PreReadChosen_0 ===  ScaratchpadTaskType.ReadFromDataControllerIndex.U) && PreIsRead_0)
         io.ScarchPadIO.FromMemoryLoader.ReadRequestToScarchPad.ReadResponseData.bits(i) := s1_bank_read_data

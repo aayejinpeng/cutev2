@@ -26,12 +26,33 @@ class ReduceMACTree8 extends Module with HWParameters{
     //累加ExternalReduceSize次，完成一次计算，置DResult为valid
 
     //TODO:init
-    io.AVector.ready := false.B
-    io.BVector.ready := false.B
-    io.CAdd.ready := false.B
-    io.DResult.valid := false.B
+    io.AVector.ready := true.B
+    io.BVector.ready := true.B
+    io.CAdd.ready := true.B
+    io.DResult.valid := true.B
     io.DResult.bits := DontCare
     io.working := false.B
+    val ttreg = RegInit(0.U(ResultWidth.W))
+    when(io.AVector.fire && io.BVector.fire && io.CAdd.fire && io.FIFOReady){
+        io.working := true.B
+    }.otherwise{
+        io.working := false.B
+    }
+    when(io.working && ttreg===io.ExternalReduceSize-1.U){
+        io.DResult.valid := true.B
+    }.otherwise{
+        io.DResult.valid := false.B
+    }
+    when(io.working && ttreg===io.ExternalReduceSize-1.U){
+        ttreg := 0.U
+    }.otherwise{
+        ttreg := ttreg + 1.U
+        when(io.AVector.bits > io.BVector.bits){
+            ttreg := ttreg + 3.U
+        }
+        
+    }
+    io.DResult.bits := ttreg
 
 }
 
@@ -74,7 +95,7 @@ class ReduceMACTree32 extends Module with HWParameters{
 }
 
 //单个ReducePE, 计算Reduce乘累加的结果
-class ReducePE extends Module with HWParameters{
+class ReducePE(implicit p: Parameters) extends Module with HWParameters{
     val io = IO(new Bundle{
         val ReduceA = Flipped(DecoupledIO(UInt(ReduceWidth.W)))
         val ReduceB = Flipped(DecoupledIO(UInt(ReduceWidth.W)))

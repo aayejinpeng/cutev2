@@ -5,34 +5,23 @@ import chisel3._
 import chisel3.util._
 import org.chipsalliance.cde.config._
 import boom.exu.ygjk._
-import scala.collection.parallel.Task
+// import scala.collection.parallel.Task
 
-
-class MMacc extends MyACCModule with HWParameters with YGJKParameters{
+class CUTETopIO() extends Bundle{
+    val mmu2llc = Flipped(new MMU2TLIO)
+    val ctrl2top = Flipped(new YGJKControl)
+}
+class CUTEV2Top(implicit p: Parameters) extends Module with HWParameters{
+    val io = IO(new CUTETopIO)
     
-    // //ocPENum个TE
-    // val PEs = VecInit(Seq.fill(ocPENum)(Module(new PE).io))
-    // //每个TE对应一个Abuffer
-    // val Abuffer = VecInit(Seq.fill(ocPENum)(Module(new PEAbuffer).io))
-    // //一份Abroadcast和一份Ascratchpad
-    // val Abroadcast = Module(new A2PEbroadcast).io
-    // val AScratchpad = Module(new AScratchpad).io
-    // //每个TE对应一个Bbuffer、Bbroadcast和BScratchpad，没有B的广播
-    // val Bbuffer = VecInit(Seq.fill(ocPENum)(Module(new PEBbuffer).io))
-    // val Bbroadcast = VecInit(Seq.fill(ocPENum)(Module(new B2PEbroadcast).io))
-    // val BScratchpad = VecInit(Seq.fill(ocPENum)(Module(new BScratchpad).io))
-    // //每个TE对应一个Cbuffer和C2PE、CScratchpad
-    // val Cbuffer = VecInit(Seq.fill(ocPENum)(Module(new Cbuffer).io))
-    // val C2PE = VecInit(Seq.fill(ocPENum)(Module(new C2PE).io))
-    // val CScratchpad = VecInit(Seq.fill(ocPENum)(Module(new CScratchpad).io))
-
     //TODO:init DontCare很危险
-    io.cmd.acc_req_a.bits := DontCare
-    io.cmd.acc_req_a.valid := DontCare
-    io.cmd.acc_req_b.bits := DontCare
-    io.cmd.acc_req_b.valid := DontCare
-    io.cmd.req_id := DontCare
-    io.ctl.acc_running := DontCare
+    // io.cmd.acc_req_a.bits := DontCare
+    // io.cmd.acc_req_a.valid := DontCare
+    // io.cmd.acc_req_b.bits := DontCare
+    // io.cmd.acc_req_b.valid := DontCare
+    // io.cmd.req_id := DontCare
+    // io.ctl.acc_running := DontCare
+
 
 
     val ASPad_0 = Module(new AScratchpad).io //double buffer
@@ -53,6 +42,8 @@ class MMacc extends MyACCModule with HWParameters with YGJKParameters{
     val TaskCtrl = Module(new TaskController).io
     
     val MTE = Module(new MatrixTE).io
+
+    val MMU = Module(new LocalMMU).io
 
     MTE.VectorA <> ADC.VectorA
     MTE.VectorB <> BDC.VectorB
@@ -182,6 +173,16 @@ class MMacc extends MyACCModule with HWParameters with YGJKParameters{
     CML.MemoryLoadEnd.ready := true.B //TODO:
 
     TaskCtrl.ConfigInfo.ready := ADC.ConfigInfo.ready && BDC.ConfigInfo.ready && CDC.ConfigInfo.ready && MTE.ConfigInfo.ready && AML.ConfigInfo.ready && BML.ConfigInfo.ready && CML.ConfigInfo.ready
+
+    io.mmu2llc <> MMU.LastLevelCacheTLIO
+    AML.LocalMMUIO <> MMU.ALocalMMUIO
+    BML.LocalMMUIO <> MMU.BLocalMMUIO
+    CML.LocalMMUIO <> MMU.CLocalMMUIO
+    MMU.Config := TaskCtrl.ConfigInfo.bits.MMUConfig
+    io.ctrl2top <> TaskCtrl.ygjkctrl //指令宏码送入，taskctrl指令微码送出到各个模块，做到可配可能需要一个大模块做控制，其他小模块能从不同LLCnode发出访存请求的设计
+
+
+
 
 
 }
