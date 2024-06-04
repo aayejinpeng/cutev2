@@ -87,8 +87,8 @@ class CScratchpad extends Module with HWParameters{
     // val SramAddr_0 = Wire(Vec(CScratchpadNBanks, (UInt(log2Ceil(CScratchpadBankNEntrys).W))))
     
     val ChoseOneHot_0 = UIntToOH(ChoseIndex_0)
-    io.ScarchPadIO.FromDataController.ReadWriteResponse := ChoseOneHot_0
-    io.ScarchPadIO.FromMemoryLoader.ReadWriteResponse := ChoseOneHot_0
+    io.ScarchPadIO.FromDataController.ReadWriteResponse := Mux(HasRequest,ChoseOneHot_0,0.U)
+    io.ScarchPadIO.FromMemoryLoader.ReadWriteResponse := Mux(HasRequest,ChoseOneHot_0,0.U)
     val SramAddr_0 = PriorityMux(ChoseOneHot_0, Seq(
         io.ScarchPadIO.FromDataController.ReadBankAddr.bits,
         io.ScarchPadIO.FromDataController.WriteBankAddr.bits,
@@ -118,7 +118,7 @@ class CScratchpad extends Module with HWParameters{
 
     //输出所有SramAddr_0
     for(i <- 0 until CScratchpadNBanks){
-        printf("SramAddr_0[%d] = %d\n", i.U, SramAddr_0(i))
+        // printf("SramAddr_0[%d] = %d\n", i.U, SramAddr_0(i))
     }
     
 
@@ -134,6 +134,7 @@ class CScratchpad extends Module with HWParameters{
         val s0_bank_read_valid = SramIsRead_0 && HasRequest
         //第1周期的数据
         val s1_bank_read_data = bank.read(s0_bank_read_addr,s0_bank_read_valid).asUInt
+        val debug_s1_bank_addr = RegNext(s0_bank_read_addr)
         // val s1_bank_read_addr = RegEnable(s0_bank_read_addr, s0_bank_read_valid)
         // val s1_bank_read_valid = RegNext(s0_bank_read_valid)
         // //输出所有回数请求
@@ -146,6 +147,11 @@ class CScratchpad extends Module with HWParameters{
         io.ScarchPadIO.FromDataController.ReadResponseData.valid := ((PreReadChosen_0 ===  ScaratchpadTaskType.ReadFromDataControllerIndex.U) && PreIsRead_0)
         io.ScarchPadIO.FromMemoryLoader.ReadRequestToScarchPad.ReadResponseData.bits(i) := s1_bank_read_data
         io.ScarchPadIO.FromMemoryLoader.ReadRequestToScarchPad.ReadResponseData.valid := (PreReadChosen_0 === ScaratchpadTaskType.ReadFromMemoryLoaderIndex.U && PreIsRead_0)
+        when(PreIsRead_0)
+        {
+            //输出读的信息
+            printf("[CSPD_Read]Bank(%d): debug_s1_bank_addr = %d ,s1_bank_read_data = %x, PreReadChosen_0 = %d \n", i.U, debug_s1_bank_addr, s1_bank_read_data,PreReadChosen_0)
+        }
         //读取数据的fifo得在DataController里面自己实现，ScarchPad尽可能减少逻辑，符合SRAM的特性，所以上面的代码只有valid和data，没有ready
         
         //写数据
@@ -154,6 +160,8 @@ class CScratchpad extends Module with HWParameters{
         val s0_bank_write_valid = SramIsWrite_0 && HasRequest
         when(s0_bank_write_valid){
             bank.write(s0_bank_write_addr, s0_bank_write_data)
+            //输出写的信息
+            printf("[CSPD_Write]Bank(%d): s0_bank_write_addr = %d ,s0_bank_write_data = %x\n", i.U, s0_bank_write_addr, s0_bank_write_data)
         }
 
         bank

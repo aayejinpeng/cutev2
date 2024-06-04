@@ -68,7 +68,7 @@ class CUTEV2Top(implicit p: Parameters) extends Module with HWParameters{
     ADC.FromScarchPadIO <> ASPad_0.ScarchPadIO.FromDataController
     // ADC.FromScarchPadIO <> Mux(, ASPad_0.ScarchPadIO.FromDataController, ASPad_1.ScarchPadIO.FromDataController)
     ADC.ConfigInfo.bits := TaskCtrl.ConfigInfo.bits
-    ADC.ConfigInfo.valid := TaskCtrl.ConfigInfo.valid
+    ADC.ConfigInfo.valid := false.B //TaskCtrl.ConfigInfo.valid
     ADC.SwitchScarchPad.ready := true.B //实际上要看具体的另外一个ScarchPad的memoryloader的任务是否完成了。//TODO:
     ADC.TaskEnd.bits := true.B //TODO:
     ADC.TaskEnd.valid := true.B //TODO:
@@ -108,7 +108,7 @@ class CUTEV2Top(implicit p: Parameters) extends Module with HWParameters{
         BSPad_1.ScarchPadIO.DataControllerValid := true.B
     }
     BDC.ConfigInfo.bits := TaskCtrl.ConfigInfo.bits
-    BDC.ConfigInfo.valid := TaskCtrl.ConfigInfo.valid
+    BDC.ConfigInfo.valid := false.B
     BDC.SwitchScarchPad.ready := true.B //实际上要看具体的另外一个ScarchPad的memoryloader的任务是否完成了。//TODO:
     BDC.TaskEnd.bits := true.B //TODO:
     BDC.TaskEnd.valid := true.B //TODO:
@@ -146,7 +146,7 @@ class CUTEV2Top(implicit p: Parameters) extends Module with HWParameters{
         CSPad_1.ScarchPadIO.DataControllerValid := true.B
     }
     CDC.ConfigInfo.bits := TaskCtrl.ConfigInfo.bits
-    CDC.ConfigInfo.valid := TaskCtrl.ConfigInfo.valid
+    CDC.ConfigInfo.valid := false.B
     CDC.SwitchScarchPad.ready := true.B //实际上要看具体的另外一个ScarchPad的memoryloader的任务是否完成了。//TODO:
     CDC.TaskEnd.bits := true.B //TODO:
     CDC.TaskEnd.valid := true.B //TODO:
@@ -180,7 +180,16 @@ class CUTEV2Top(implicit p: Parameters) extends Module with HWParameters{
     CML.LocalMMUIO <> MMU.CLocalMMUIO
     MMU.Config := TaskCtrl.ConfigInfo.bits.MMUConfig
     io.ctrl2top <> TaskCtrl.ygjkctrl //指令宏码送入，taskctrl指令微码送出到各个模块，做到可配可能需要一个大模块做控制，其他小模块能从不同LLCnode发出访存请求的设计
-
+    TaskCtrl.TaskCtrlInfo.ADC := DontCare
+    TaskCtrl.TaskCtrlInfo.BDC := DontCare
+    TaskCtrl.TaskCtrlInfo.CDC := DontCare
+    TaskCtrl.TaskCtrlInfo.AML.LoadEnd <> AML.MemoryLoadEnd
+    TaskCtrl.TaskCtrlInfo.BML.LoadEnd <> BML.MemoryLoadEnd
+    TaskCtrl.TaskCtrlInfo.CML.LoadEnd <> CML.MemoryLoadEnd
+    TaskCtrl.TaskCtrlInfo.AML.TaskEnd <> AML.TaskEnd
+    TaskCtrl.TaskCtrlInfo.BML.TaskEnd <> BML.TaskEnd
+    TaskCtrl.TaskCtrlInfo.CML.TaskEnd <> CML.TaskEnd
+    
 
 
 

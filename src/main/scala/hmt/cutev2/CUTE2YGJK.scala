@@ -68,11 +68,30 @@ class CUTE2TLImp(outer: Cute2TL) extends LazyModuleImp(outer) with HWParameters{
   }
   io.mmu.ConherentRequsetSourceID.bits := id
   io.mmu.ConherentRequsetSourceID.valid := !is_full
+    //输出是否sourceid已满的信息
+    // printf("[CUTE2YGJK.node]is_full: %x\n", is_full)
+  when(io.mmu.Request.fire){
+    //输出mmu的sourceid的信息
+    printf("[CUTE2YGJK.node]sourceid: %x\n", io.mmu.ConherentRequsetSourceID.bits)
+    //输出其他mmu的io.mmu.Request.bits的 所有信息,包含变量名
+    printf("[CUTE2YGJK.node.io.mmu.Request.bits] RequestType_isWrite %x, RequestPhysicalAddr %x, RequestData %x\n", io.mmu.Request.bits.RequestType_isWrite, io.mmu.Request.bits.RequestPhysicalAddr, io.mmu.Request.bits.RequestData)
+    }
+
+    
 
   when(!(is_full)){
     when(tl_out.a.fire){
       busy(id):=true.B
     }
+  }.otherwise
+  {
+    //输出是否sourceid已满的信息
+    printf("[CUTE2YGJK.node]is_full: %x\n", is_full)
+  }
+  //只要有请求，就输出一共有有多少个infligt的请求
+  when(io.mmu.Request.valid || io.mmu.Response.valid){
+    //统计busy，一共有多少个在飞行中的请求,及有多少个ture.B
+    printf("[CUTE2YGJK.node]busy: %d\n", busy.count(_ === true.B))
   }
 
   when(tl_out.d.fire){
@@ -80,11 +99,10 @@ class CUTE2TLImp(outer: Cute2TL) extends LazyModuleImp(outer) with HWParameters{
     busy(tl_out.d.bits.source) := false.B
   }
 
-  //继续写TODO:
   tl_out.a.valid := io.mmu.Request.valid && !is_full
   tl_out.a.bits := Mux1H(Seq(
-    (io.mmu.Request.bits.RequestType_isWrite === 0.U) -> edge.Get(id, io.mmu.Request.bits.RequestPhysicalAddr, LLCDataWidthByte.U)._2,
-    (io.mmu.Request.bits.RequestType_isWrite === 1.U) -> edge.Put(id, io.mmu.Request.bits.RequestPhysicalAddr, LLCDataWidthByte.U, data)._2
+    (io.mmu.Request.bits.RequestType_isWrite === 0.U) -> edge.Get(id, io.mmu.Request.bits.RequestPhysicalAddr, log2Ceil(LLCDataWidthByte).U)._2,
+    (io.mmu.Request.bits.RequestType_isWrite === 1.U) -> edge.Put(id, io.mmu.Request.bits.RequestPhysicalAddr, log2Ceil(LLCDataWidthByte).U, data)._2
   ))
 
 
@@ -171,7 +189,7 @@ class CUTETile(outer: RoCC2CUTE)(implicit p: Parameters) extends LazyRoCCModuleI
     io.badvaddr_ygjk := Mux(jk_state=/=jk_resp, missAddr, missAddr+1.U)
     switch(jk_state){
       is(jk_idle){
-        when(io.cmd.fire && io.cmd.bits.inst.opcode === "h0B".U && io.cmd.bits.inst.funct === 0.U){
+        when(io.cmd.fire && io.cmd.bits.inst.opcode === "h0B".U && io.cmd.bits.inst.funct(5,0) === 0.U){
           ac_busy := true.B
           jk_state := jk_compute
           count := 0.U
@@ -181,6 +199,7 @@ class CUTETile(outer: RoCC2CUTE)(implicit p: Parameters) extends LazyRoCCModuleI
       }
 
       is(jk_compute){
+        printf(p"[CUTE2YGJK.top]ac_busy = $ac_busy\n")
         when(acc.io.ctrl2top.acc_running === false.B && mem.io.idle){
           jk_state := jk_resp
         }
@@ -195,8 +214,14 @@ class CUTETile(outer: RoCC2CUTE)(implicit p: Parameters) extends LazyRoCCModuleI
         }
       }
     }
-
-    acc.io.ctrl2top.config.valid := io.cmd.fire() && io.cmd.bits.inst.opcode === "h0B".U && io.cmd.bits.inst.funct === (0).U
+    //opcode对应的是路由到某个加速器用的，CUSTOM0、CUSTOM1、CUSTOM2、CUSTOM3这四组opcode
+    //我们这里默认使用opcode为0x0B的指令，将funct的最高位为1的指令作为配置指令。
+    acc.io.ctrl2top.config.valid := io.cmd.fire() && io.cmd.bits.inst.opcode === "h0B".U && io.cmd.bits.inst.funct(6) === 1.U
+    //输出指令信息,io.cmd.bits.inst.funct
+    // printf("funct: %x\n", io.cmd.bits.inst.funct)
+    when(io.cmd.fire){
+        printf("CUTE: opcode: %x, rs1: %x, rs2: %x, rd: %x, funct: %x\n", io.cmd.bits.inst.opcode, io.cmd.bits.rs1, io.cmd.bits.rs2, io.cmd.bits.inst.rd, io.cmd.bits.inst.funct)
+    }
     acc.io.ctrl2top.config.bits.cfgData1 := io.cmd.bits.rs1
     acc.io.ctrl2top.config.bits.cfgData2 := io.cmd.bits.rs2
     acc.io.ctrl2top.config.bits.func := io.cmd.bits.inst.funct

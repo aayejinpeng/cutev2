@@ -40,7 +40,7 @@ class LMMUIO(implicit p: Parameters) extends BoomBundle{
 	val core = new CoreIO
 	val req  = new LMMUReq
 	val resp = new LMMUResp
-        val paddr0 = Output(UInt(64.W))
+    val paddr0 = Output(UInt(64.W))
 	val paddr1 = Output(UInt(64.W))
 }
 

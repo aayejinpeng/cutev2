@@ -84,7 +84,7 @@ class Yg2TLImp2(outer: Yg2TL2) extends LazyModuleImp(outer) with YGJKParameters 
   tl_out.d.ready := true.B
   io.resp.valid := tl_out.d.valid && tl_out.d.bits.opcode === TLMessages.AccessAckData
   io.req.ready := tl_out.a.ready && !(busy.reduce(_&_))
-  io.resp.bits.data := tl_out.d.bits.data >> (offset << 3.U).asUInt()
+  io.resp.bits.data := tl_out.d.bits.data >> (offset << 3.U).asUInt() //拼数据用的
   io.resp.bits.id := tl_out.d.bits.source
 
 //  when(io.req.fire() && (io.req.bits.cmd === 3.U)){

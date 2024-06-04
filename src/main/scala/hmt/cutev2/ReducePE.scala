@@ -26,34 +26,46 @@ class ReduceMACTree8 extends Module with HWParameters{
     //累加ExternalReduceSize次，完成一次计算，置DResult为valid
 
     //TODO:init
-    io.AVector.ready := true.B
-    io.BVector.ready := true.B
+    io.AVector.ready := DontCare
+    io.BVector.ready := DontCare
     io.CAdd.ready := true.B
     io.DResult.valid := true.B
     io.DResult.bits := DontCare
     io.working := false.B
-    val ttreg = RegInit(0.U(ResultWidth.W))
-    when(io.AVector.fire && io.BVector.fire && io.CAdd.fire && io.FIFOReady){
-        io.working := true.B
-    }.otherwise{
-        io.working := false.B
-    }
-    when(io.working && ttreg===io.ExternalReduceSize-1.U){
-        io.DResult.valid := true.B
-    }.otherwise{
-        io.DResult.valid := false.B
-    }
-    when(io.working && ttreg===io.ExternalReduceSize-1.U){
-        ttreg := 0.U
-    }.otherwise{
-        ttreg := ttreg + 1.U
-        when(io.AVector.bits > io.BVector.bits){
-            ttreg := ttreg + 3.U
-        }
-        
-    }
-    io.DResult.bits := ttreg
 
+    //将A、B解释为8bit位宽的数据
+    val AVectorList = Wire(Vec(ReduceWidth/8, UInt(8.W)))
+    val BVectorList = Wire(Vec(ReduceWidth/8, UInt(8.W)))
+
+    AVectorList := io.AVector.bits.asTypeOf(AVectorList)
+    BVectorList := io.BVector.bits.asTypeOf(BVectorList)
+
+    //将A、B的数据分别乘，这里如果位数宽了，需要额外的设计，以满足时钟频率
+    val MULResult = Wire(Vec(ReduceWidth/8, UInt(16.W)))
+    for(i <- 0 until ReduceWidth/8){
+        MULResult(i) := AVectorList(i) * BVectorList(i)
+    }
+
+    //将MULResult的数据累加
+    //这里的累加树需要额外设计，以满足时钟频率
+    val ADDReduceTreeResult = Wire(UInt((16+log2Ceil(ReduceWidth/8)).W))
+    ADDReduceTreeResult := MULResult.reduceTree((a: UInt, b: UInt) => RegNext(a + b)) //log2Ceil(ReduceWidth/8)个周期出结果
+
+    //过ExternalReduceSize个周期，会有一个CAdd的数据，将这ExternalReduceSize个周期的结果累加并累加到CAdd上，完成一次计算
+    val CAddResult = RegInit(0.U(ResultWidth.W))
+    val CAddCount = RegInit(0.U(ScaratchpadMaxTensorDimBitSize.W))
+    val DResult = RegInit(0.U(ResultWidth.W))
+
+    when(io.CAdd.valid){
+        CAddResult := io.CAdd.bits
+    }
+
+    when(CAddCount===io.ExternalReduceSize){
+        io.DResult.bits := CAddResult
+        CAddCount := 0.U
+        CAddResult := 0.U
+    }
+    
 }
 
 class ReduceMACTree16 extends Module with HWParameters{
@@ -213,9 +225,9 @@ class ReducePE(implicit p: Parameters) extends Module with HWParameters{
     //方案1:已知MACTree的流水线深度，已知ResultFIFO的深度，可以得出ResultFIFO存的数据达到某个深度时，可以安全的接受新的数据
     //方案2：直接用FIFO满没满确定是否ready，整体流水线都受这个制约，好像有点粗暴？只要ready，所有数据往下流一个流水级，否则不动
     val InputReady = ResultFIFOFull===false.B
-    io.ReduceA.ready := InputReady
-    io.ReduceB.ready := InputReady
-    io.AddC.ready    := InputReady
+    io.ReduceA.ready := InputReady && io.ReduceA.valid && io.ReduceB.valid
+    io.ReduceB.ready := InputReady && io.ReduceA.valid && io.ReduceB.valid
+    io.AddC.ready    := InputReady && io.ReduceA.valid && io.ReduceB.valid
 
     //什么时候能接让MacTree的数据输入到fifo？
     //MacTree的数据输入到fifo的时候，fifo不满，且MacTree的数据有效

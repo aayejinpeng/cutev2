@@ -64,7 +64,7 @@ class LocalTLB(implicit p: Parameters) extends BoomModule with LocalTLBParameter
 
 	//vaddr -> paddr
     //默认通路
-    println("[LocalTLB] paddrBits: " + paddrBits)
+    // println("[LocalTLB] paddrBits: " + paddrBits)
 	io.resp.paddr0 := io.req.vaddr0(paddrBits - 1 , 0)
 	io.resp.paddr1 := io.req.vaddr1(paddrBits - 1 , 0)
 
@@ -161,13 +161,19 @@ class LocalMMU(implicit p: Parameters) extends BoomModule with HWParameters{
     io.ALocalMMUIO.Request.ready := false.B
     io.BLocalMMUIO.Request.ready := false.B
     io.CLocalMMUIO.Request.ready := false.B
+    io.ALocalMMUIO.ConherentRequsetSourceID.valid := false.B
+    io.BLocalMMUIO.ConherentRequsetSourceID.valid := false.B
+    io.CLocalMMUIO.ConherentRequsetSourceID.valid := false.B
     // io.DLocalMMUIO.Request.ready := false.B
     //如果sourceid是valid，则LLC可以接受这个请求，开始送入到LLC的访存端口
     //如果这里TLB查询要时间，一个周期做不完，这里就要有一个buffer，来存储这个请求，等TLB查询完了，再送入LLC的访存端口
     //TLB的查询也可以优化，直到数据跨页，才发出TLB查询请求，相对于每次都发出TLB查询请求，尤其是那种大页的情况下，不够看一下也没多少消耗对于tlb来说
     //可以留到操作系统相关的那篇论文时，再写这个优化。可以和Gemmini比，先裸机能跑
     //这里得到谁先服务，送入TLB，送入LLC的访存端口，如果这里需要切流水也简单,提前锁定sourceid即可，将TLnode内的sourceid锁定的逻辑放到这里来写
-    val sourceid2port = VecInit(Seq.fill(LLCSourceMaxNum)(0.U(log2Ceil(LocalMMUTaskType.TaskTypeMax).W)))
+    // val sourceid2port = VecInit(Seq.fill(LLCSourceMaxNum)(RegInit(0.U(log2Ceil(LocalMMUTaskType.TaskTypeMax).W))))
+    val sourceid2port = RegInit(VecInit(Seq.fill(LLCSourceMaxNum)(0.U(log2Ceil(LocalMMUTaskType.TaskTypeMax).W))))
+    //输出一下sourceid2port的数据类型
+    println("[LocalMMU] sourceid2port: " + sourceid2port)
 
     val ltlb = Module(new LocalTLB)
     ltlb.io.config := io.Config
@@ -179,6 +185,7 @@ class LocalMMU(implicit p: Parameters) extends BoomModule with HWParameters{
     io.LastLevelCacheTLIO.Request.bits.RequestPhysicalAddr := 0.U
     io.LastLevelCacheTLIO.Request.bits.RequestType_isWrite := false.B
     io.LastLevelCacheTLIO.Request.bits.RequestData := 0.U
+    io.LastLevelCacheTLIO.Request.valid := false.B
     // //输出ABC的信息和valid和hasrequest
     // printf(p"ALocalMMUIO ${io.ALocalMMUIO.Request.bits} request_valid ${io.ALocalMMUIO.Request.valid} ${io.ALocalMMUIO.Request.ready} ${io.ALocalMMUIO.Response}\n")
     // printf(p"BLocalMMUIO ${io.BLocalMMUIO.Request.bits} request_valid ${io.BLocalMMUIO.Request.valid} ${io.BLocalMMUIO.Request.ready} ${io.BLocalMMUIO.Response}\n")
@@ -187,23 +194,42 @@ class LocalMMU(implicit p: Parameters) extends BoomModule with HWParameters{
     // printf(p"ConherentRequsetSourceID ${io.LastLevelCacheTLIO.ConherentRequsetSourceID}\n")
     // printf(p"HasRequest ${HasRequest}\n")
     // printf(p"ChoseIndex_0 ${ChoseIndex_0}\n")
-    when(io.LastLevelCacheTLIO.ConherentRequsetSourceID.valid && HasRequest)
+    // val last_sourceid = RegInit(0.U(LLCSourceMaxNumBitSize.W))
+    
+
+    //如果HasRequest，输出其他两个信息
+    when(HasRequest)
     {
+        //输出io.LastLevelCacheTLIO.ConherentRequsetSourceID.valid
+        //输出io.LastLevelCacheTLIO.Request.ready
+        printf(p"[localmmu]io.LastLevelCacheTLIO.ConherentRequsetSourceID.valid ${io.LastLevelCacheTLIO.ConherentRequsetSourceID.valid} io.LastLevelCacheTLIO.Request.ready ${io.LastLevelCacheTLIO.Request.ready}\n")
+    }
+
+    when(io.LastLevelCacheTLIO.ConherentRequsetSourceID.valid && HasRequest && io.LastLevelCacheTLIO.Request.ready)
+    {
+        // printf(p"last_sourceid ${last_sourceid} last_sourceid2port ${sourceid2port(last_sourceid)}\n")
+        // last_sourceid := io.LastLevelCacheTLIO.ConherentRequsetSourceID.bits
         when(ChoseIndex_0 === LocalMMUTaskType.AFirst){
-            io.ALocalMMUIO.Request.ready := true.B
+            io.ALocalMMUIO.Request.ready := io.LastLevelCacheTLIO.Request.ready
             io.ALocalMMUIO.ConherentRequsetSourceID := io.LastLevelCacheTLIO.ConherentRequsetSourceID
+            //输出sourceid的信息
+            printf(p"[localmmu]ALocalMMUIO.ConherentRequsetSourceID ${io.LastLevelCacheTLIO.ConherentRequsetSourceID.bits}\n")
             ltlb.io.req.vaddr0 := io.ALocalMMUIO.Request.bits.RequestVirtualAddr
             ltlb.io.req.vaddr0_v := true.B
             sourceid2port(io.LastLevelCacheTLIO.ConherentRequsetSourceID.bits) := LocalMMUTaskType.AFirst
         }.elsewhen(ChoseIndex_0 === LocalMMUTaskType.BFirst){
-            io.BLocalMMUIO.Request.ready := true.B
+            io.BLocalMMUIO.Request.ready := io.LastLevelCacheTLIO.Request.ready
             io.BLocalMMUIO.ConherentRequsetSourceID := io.LastLevelCacheTLIO.ConherentRequsetSourceID
+            printf(p"[localmmu]BLocalMMUIO.ConherentRequsetSourceID ${io.LastLevelCacheTLIO.ConherentRequsetSourceID.bits}\n")
             ltlb.io.req.vaddr0 := io.BLocalMMUIO.Request.bits.RequestVirtualAddr
             ltlb.io.req.vaddr0_v := true.B
             sourceid2port(io.LastLevelCacheTLIO.ConherentRequsetSourceID.bits) := LocalMMUTaskType.BFirst
+            //输出LocalMMUTaskType.BFirst
+            printf(p"[localmmu]LocalMMUTaskType.BFirst ${LocalMMUTaskType.BFirst}\n")
         }.elsewhen(ChoseIndex_0 === LocalMMUTaskType.CFirst){
-            io.CLocalMMUIO.Request.ready := true.B
+            io.CLocalMMUIO.Request.ready := io.LastLevelCacheTLIO.Request.ready
             io.CLocalMMUIO.ConherentRequsetSourceID := io.LastLevelCacheTLIO.ConherentRequsetSourceID
+            printf(p"[localmmu]CLocalMMUIO.ConherentRequsetSourceID ${io.LastLevelCacheTLIO.ConherentRequsetSourceID.bits}\n")
             ltlb.io.req.vaddr0 := io.CLocalMMUIO.Request.bits.RequestVirtualAddr
             ltlb.io.req.vaddr0_v := true.B
             io.LastLevelCacheTLIO.Request.bits.RequestData := io.CLocalMMUIO.Request.bits.RequestData
@@ -218,24 +244,30 @@ class LocalMMU(implicit p: Parameters) extends BoomModule with HWParameters{
         io.LastLevelCacheTLIO.Request.valid := true.B
     }
 
-    io.ALocalMMUIO.Response := DontCare
-    io.BLocalMMUIO.Response := DontCare
-    io.CLocalMMUIO.Response := DontCare
+    io.ALocalMMUIO.Response := io.LastLevelCacheTLIO.Response
+    io.BLocalMMUIO.Response := io.LastLevelCacheTLIO.Response
+    io.CLocalMMUIO.Response := io.LastLevelCacheTLIO.Response
+    io.ALocalMMUIO.Response.valid := false.B
+    io.BLocalMMUIO.Response.valid := false.B
+    io.CLocalMMUIO.Response.valid := false.B
     when(io.LastLevelCacheTLIO.Response.valid)
     {
+        //sourceid2port和sourceid的信息
+        printf(p"[localmmu]sourceid2port ${sourceid2port(io.LastLevelCacheTLIO.Response.bits.ReseponseSourceID)} io.LastLevelCacheTLIO.Response.bits.ReseponseSourceID ${io.LastLevelCacheTLIO.Response.bits.ReseponseSourceID}\n")
+
         when(sourceid2port(io.LastLevelCacheTLIO.Response.bits.ReseponseSourceID) === LocalMMUTaskType.AFirst){
-            io.ALocalMMUIO.Response := io.LastLevelCacheTLIO.Response
+            io.ALocalMMUIO.Response.valid := true.B
         }.elsewhen(sourceid2port(io.LastLevelCacheTLIO.Response.bits.ReseponseSourceID) === LocalMMUTaskType.BFirst){
-            io.BLocalMMUIO.Response := io.LastLevelCacheTLIO.Response
+            io.BLocalMMUIO.Response.valid := true.B
         }.elsewhen(sourceid2port(io.LastLevelCacheTLIO.Response.bits.ReseponseSourceID) === LocalMMUTaskType.CFirst){
-            io.CLocalMMUIO.Response := io.LastLevelCacheTLIO.Response
+            io.CLocalMMUIO.Response.valid := true.B
         }.otherwise{
             
         }
     }
     //输出每次的请求
     when(io.LastLevelCacheTLIO.Request.valid){
-        printf(p"io.LastLevelCacheTLIO.Request.bits.RequestPhysicalAddr ${io.LastLevelCacheTLIO.Request.bits.RequestPhysicalAddr} io.LastLevelCacheTLIO.Request.bits.RequestType_isWrite ${io.LastLevelCacheTLIO.Request.bits.RequestType_isWrite} io.LastLevelCacheTLIO.Request.bits.RequestData ${io.LastLevelCacheTLIO.Request.bits.RequestData}\n")
+        // printf(p"io.LastLevelCacheTLIO.Request.bits.RequestPhysicalAddr ${io.LastLevelCacheTLIO.Request.bits.RequestPhysicalAddr} io.LastLevelCacheTLIO.Request.bits.RequestType_isWrite ${io.LastLevelCacheTLIO.Request.bits.RequestType_isWrite} io.LastLevelCacheTLIO.Request.bits.RequestData ${io.LastLevelCacheTLIO.Request.bits.RequestData}\n")
     }
 
 }

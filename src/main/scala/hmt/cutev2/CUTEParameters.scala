@@ -54,10 +54,10 @@ trait HWParameters{
     val MMUDataWidthBitSize = log2Ceil(MMUDataWidth) + 1
 
 //LLC总线上的source最大数量 --> 这个参数和LLC的访存延迟强相关，若要满流水，这个sourceMAXnum的数量必须大于LLC的访存延迟
-    val LLCSourceMaxNum = 32
+    val LLCSourceMaxNum = 64
     val LLCSourceMaxNumBitSize = log2Ceil(LLCSourceMaxNum) + 1
 //Memory总线上的source最大数量 --> 这个参数和Memory的访存延迟强相关，若要满流水，这个sourceMAXnum的数量必顶大于Memory的访存延迟
-    val MemorysourceMaxNum = 32
+    val MemorysourceMaxNum = 64
     val MemorysourceMaxNumBitSize = log2Ceil(MemorysourceMaxNum) + 1
 
     val SoureceMaxNum = math.max(LLCSourceMaxNum, MemorysourceMaxNum)
@@ -65,13 +65,15 @@ trait HWParameters{
 
 
 //Scaratchpad中保存的张量形状
-    val Tensor_M = 64
-    val Tensor_N = 64
-    val Tensor_K = 64
+    val Tensor_M = 128
+    val Tensor_N = 128
+    val Tensor_K = 4
     val ScaratchpadMaxTensorDim = Math.max(Tensor_M, Math.max(Tensor_N, Tensor_K))
     val ScaratchpadMaxTensorDimBitSize = log2Ceil(ScaratchpadMaxTensorDim) + 1
 //AScaratchpad中保存的张量形状为M*K
 //AScaratchpad的大小为Tenser_M * Tensor_K * ReduceWidthByte
+//128*(4*256/8)，单次读的张量为128*128的张量
+//单次计算需要的时间为(128/4)*(128/4)*4 = 4096拍，单次读需要128×4=512拍。
 //需要考虑Scaratchpad的顺序读，需要考虑为Scaratchpad分bank
     val AScratchpadSize = Tensor_M * Tensor_K * ReduceWidthByte //reduce
     val BScratchpadSize = Tensor_N * Tensor_K * ReduceWidthByte //reduce
@@ -111,33 +113,47 @@ trait HWParameters{
     val ResultFIFODepth = 8
     val InputFIFODepth = 8
     
-    val CMemoryLoaderReadFromScratchpadFIFODepth = 4 //这个fifo不够深的话，会导致读请求排不满，必须和LLC的回数延迟一致
-    val CMemoryLoaderReadFromMemoryFIFODepth = 4 //这个fifo不够深的话，会导致读请求排不满，必须和LLC的回数延迟一致
+    val CMemoryLoaderReadFromScratchpadFIFODepth = 32 //这个fifo不够深的话，会导致读请求排不满，必须和LLC的回数延迟一致
+    val CMemoryLoaderReadFromMemoryFIFODepth = 32 //这个fifo不够深的话，会导致读请求排不满，必须和LLC的回数延迟一致
 }
 
 //需要配置的信息：oc -- 控制器发来的oc编号, 
 //                ic, oh, ow, kh, kw, ohb -- 外层循环次数,
 //                icb -- 矩阵乘计算中的中间长度
 //                paddingH, paddingW, strideH, strideW -- 卷积层属性
+
+class TaskCtrlInfo(implicit p: Parameters) extends BoomBundle with HWParameters with YGJKParameters{
+    val ADC = (new Bundle {
+        val TaskEnd = DecoupledIO(Bool())
+        val ComputeEnd = Flipped(DecoupledIO(Bool()))
+    })
+    val BDC = (new Bundle {
+        val TaskEnd = DecoupledIO(Bool())
+        val ComputeEnd = Flipped(DecoupledIO(Bool()))
+    })
+    val CDC = (new Bundle {
+        val TaskEnd = DecoupledIO(Bool())
+        val ComputeEnd = Flipped(DecoupledIO(Bool()))
+    })
+
+    val AML = (new Bundle {
+        val TaskEnd = DecoupledIO(Bool())
+        val LoadEnd = Flipped(DecoupledIO(Bool()))
+    })
+
+    val BML = (new Bundle {
+        val TaskEnd = DecoupledIO(Bool())
+        val LoadEnd = Flipped(DecoupledIO(Bool()))
+    })
+
+    val CML = (new Bundle {
+        val TaskEnd = DecoupledIO(Bool())
+        val LoadEnd = Flipped(DecoupledIO(Bool()))
+    })
+}
+
 class ConfigInfoIO(implicit p: Parameters) extends BoomBundle with HWParameters with YGJKParameters{
-    // val oc = Flipped(Valid(UInt(ocWidth.W)))               //对应reorder分块后的oc层循环次数
-    // val ic = Flipped(Valid(UInt(icWidth.W)))               //对应reorder分块后的ic层循环次数
-    // val ih = Flipped(Valid(UInt(ohWidth.W)))
-    // val iw = Flipped(Valid(UInt(owWidth.W)))
-    // val oh = Flipped(Valid(UInt(ohWidth.W)))
-    // val ow = Flipped(Valid(UInt(owWidth.W)))
-    // val kh = Flipped(Valid(UInt(khWidth.W)))
-    // val kw = Flipped(Valid(UInt(kwWidth.W)))
-    // val ohb = Flipped(Valid(UInt(ohbWidth.W)))
-    // val icb = Flipped(Valid(UInt(icWidth.W)))
-    // val paddingH = Flipped(Valid(UInt(paddingWidth.W)))
-    // val paddingW = Flipped(Valid(UInt(paddingWidth.W)))
-    // val strideH = Flipped(Valid(UInt(strideWidth.W)))
-    // val strideW = Flipped(Valid(UInt(strideWidth.W)))
-    // val start = Input(Bool()) //开始运行信号，持续一拍
-    // val Aaddr = Flipped(Valid(UInt(addrWidth.W))) //A矩阵首地址
-    // val Baddr = Flipped(Valid(UInt(addrWidth.W))) //B矩阵首地址
-    // val Caddr = Flipped(Valid(UInt(addrWidth.W))) //C矩阵首地址
+
     val MMUConfig = Flipped(new MMUConfigIO)
     val ApplicationTensor_A = (new Bundle{
         val ApplicationTensor_A_BaseVaddr = (UInt(MMUAddrWidth.W))
@@ -159,7 +175,12 @@ class ConfigInfoIO(implicit p: Parameters) extends BoomBundle with HWParameters 
         val MemoryOrder                   = (UInt(MemoryOrderType.MemoryOrderTypeBitWidth.W))
         val Conherent                     = (Bool())
     })
-
+    val ApplicationTensor_D = (new Bundle{
+        val ApplicationTensor_D_BaseVaddr = (UInt(MMUAddrWidth.W))
+        val BlockTensor_D_BaseVaddr       = (UInt(MMUAddrWidth.W))
+        val MemoryOrder                   = (UInt(MemoryOrderType.MemoryOrderTypeBitWidth.W))
+        val Conherent                     = (Bool())
+    })
     val ApplicationTensor_M = (UInt(ApplicationMaxTensorSizeBitSize.W))
     val ApplicationTensor_N = (UInt(ApplicationMaxTensorSizeBitSize.W))
     val ApplicationTensor_K = (UInt(ApplicationMaxTensorSizeBitSize.W))

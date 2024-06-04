@@ -64,14 +64,14 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
 
     
     //任务状态机 先来个简单的，顺序读取所有分块矩阵
-    val s_idle :: s_mm_task :: s_write :: Nil = Enum(3) //TODO:新增状态，这里要加各种计算状态，mm，sliding window之类的
+    val s_idle :: s_mm_task :: s_end :: Nil = Enum(3) //TODO:新增状态，这里要加各种计算状态，mm，sliding window之类的
     val state = RegInit(s_idle)
-    printf("state:%d\n",state)
+    // printf("[AML]state:%d\n",state)
 
     //访存状态机，用来配合流水线刷新
     val s_load_idle :: s_load_init :: s_load_working :: s_load_end :: Nil = Enum(4)
     val memoryload_state = RegInit(s_load_idle)
-    printf("memoryload_state:%d\n",memoryload_state)
+    // printf("[AML]memoryload_state:%d\n",memoryload_state)
     val MemoryOrder_LoadConfig = RegInit(MemoryOrderType.OrderType_Mb_Kb) 
 
     val Tensor_Block_BaseAddr = Reg(UInt(MMUAddrWidth.W)) //分块矩阵的基地址
@@ -123,7 +123,7 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
     //如果是memoryload_state === s_load_init，那么我们就要初始化各个寄存器
     //如果是memoryload_state === s_load_working，那么我们就要开始取数
     //如果是memoryload_state === s_load_end，那么我们就要结束取数
-    val TotalLoadSize = RegInit(0.U((log2Ceil(Tensor_M*Tensor_K)).W)) //总共要加载的数据量
+    val TotalLoadSize = RegInit(0.U((log2Ceil(Tensor_M*Tensor_K)).W)) //总共要加载的张量大小，总加载的数据量是Tensor_M*Tensor_K*ruduceWidthByte，这个是不会变的
     val CurrentLoaded_BlockTensor_M = RegInit(0.U(ScaratchpadMaxTensorDimBitSize.W))
     val CurrentLoaded_BlockTensor_K = RegInit(0.U(ScaratchpadMaxTensorDimBitSize.W))
     
@@ -185,6 +185,9 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
                 TableItem.ScratchpadBankId := CurrentLoaded_BlockTensor_M % AScratchpadNBanks.U
                 TableItem.ScratchpadAddr := ((CurrentLoaded_BlockTensor_M / AScratchpadNBanks.U) * Tensor_K.U) + CurrentLoaded_BlockTensor_K
                 SoureceIdSearchTable(sourceId.bits) := TableItem.asUInt
+                // printf("[AML]sourceId:%d,ScratchpadBankId:%d,ScratchpadAddr:%d\n",sourceId.bits,TableItem.ScratchpadBankId,TableItem.ScratchpadAddr)
+                //输出这次request的信息
+                // printf("[AML]RequestVirtualAddr:%x,RequestConherent:%d,RequestSourceID:%d,RequestType_isWrite:%d\n",Request.bits.RequestVirtualAddr,Request.bits.RequestConherent,Request.bits.RequestSourceID,Request.bits.RequestType_isWrite)
                 when(MemoryOrder_LoadConfig === MemoryOrderType.OrderType_Mb_Kb){
                     //只要这条取数指令可以被发出，就计算下一个访存请求的地址
                     //TODO:这里数据读取量定死了，需要为了支持边界情况，改一改
@@ -192,7 +195,7 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
                     val MaxBlockTensor_M_Index = Tensor_M
                     val MaxBlockTensor_K_Index = Tensor_K
                     when(CurrentLoaded_BlockTensor_M < MaxBlockTensor_M_Index.U){
-                        when(CurrentLoaded_BlockTensor_K < MaxBlockTensor_K_Index.U){
+                        when(CurrentLoaded_BlockTensor_K < MaxBlockTensor_K_Index.U - 1.U){
                             //根据不同的内存Order，计算出访存请求的地址
                             CurrentLoaded_BlockTensor_K := CurrentLoaded_BlockTensor_K + 1.U
                         }.otherwise{
@@ -231,12 +234,23 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
             when(TotalLoadSize === (Tensor_M * Tensor_K - 1).U){
                 memoryload_state := s_load_end
             }
+            //输出这次response的信息
+            printf("[AML]ResponseData:%x,ScratchpadBankId:%d,ScratchpadAddr:%d\n",ResponseData,ScratchpadBankId,ScratchpadAddr)
+            //response的sourceid
+            printf("[AML]ResponseSourceID:%d\n",sourceId)
+            //输出这次的totalload
+            printf("[AML]TotalLoadSize:%d\n",TotalLoadSize)
         }
         
     }.elsewhen(memoryload_state === s_load_end){
-        memoryload_state := s_load_idle
+        io.MemoryLoadEnd.bits := true.B
+        io.MemoryLoadEnd.valid := true.B
+        when(io.MemoryLoadEnd.fire){
+            memoryload_state := s_load_idle
+        }
     }.otherwise{
         memoryload_state := s_load_idle
+        io.ConfigInfo.ready := true.B
         when(io.ConfigInfo.fire){
             when(io.ConfigInfo.bits.taskType === CUTETaskType.TaskTypeMatrixMul){
                 when(state === s_idle){
