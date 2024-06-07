@@ -59,6 +59,13 @@ class CScratchpad extends Module with HWParameters{
     val DataControllerReadWriteRequest = io.ScarchPadIO.FromDataController.ReadWriteRequest
     val MemoryControllerReadWriteRequest = io.ScarchPadIO.FromMemoryLoader.ReadWriteRequest
     val ReadWriteRequest = DataControllerReadWriteRequest | MemoryControllerReadWriteRequest //这里其实可以拼接
+    //输出所有请求
+    //只要非0就输出
+    // when(ReadWriteRequest.orR){
+    //     printf("DataControllerReadWriteRequest = %d\n", DataControllerReadWriteRequest)
+    //     printf("MemoryControllerReadWriteRequest = %d\n", MemoryControllerReadWriteRequest)
+    //     printf("ReadWriteRequest = %d\n", ReadWriteRequest)
+    // }
 
     //只选择一个请求，进行服务,先来个时间片轮转?或者来个检查，看谁的fifo最深。
     //这么看一个时间片轮转就还挺不错的，如果k=4，则只需要4个周期处理到一次DataContrller来的一次读和一次写就行了
@@ -77,8 +84,10 @@ class CScratchpad extends Module with HWParameters{
                     Mux(ReadWriteRequest(ThirdIndex), ThirdIndex,
                     Mux(ReadWriteRequest(FourthIndex), FourthIndex, 0.U))))
     
-    val RequestResponse = VecInit(Seq.fill(ScaratchpadTaskType.TaskTypeBitWidth)(false.B))
-    RequestResponse(ChoseIndex_0) := true.B
+    // val RequestResponse = VecInit(Seq.fill(ScaratchpadTaskType.TaskTypeBitWidth)(false.B))
+    // when(HasRequest){
+    //     RequestResponse(ChoseIndex_0) := true.B
+    // }
     
     //单个读写端口，只用选一个ChoseIndex_0，根据ChosenIndex，读写端口的信号
     //读写请求？
@@ -89,6 +98,13 @@ class CScratchpad extends Module with HWParameters{
     val ChoseOneHot_0 = UIntToOH(ChoseIndex_0)
     io.ScarchPadIO.FromDataController.ReadWriteResponse := Mux(HasRequest,ChoseOneHot_0,0.U)
     io.ScarchPadIO.FromMemoryLoader.ReadWriteResponse := Mux(HasRequest,ChoseOneHot_0,0.U)
+    // when(HasRequest){
+    //     printf("ChoseIndex_0 = %d\n", ChoseIndex_0)
+    //     //输出io.ScarchPadIO.FromDataController.ReadWriteResponse
+    //     printf("io.ScarchPadIO.FromDataController.ReadWriteResponse = %d\n", io.ScarchPadIO.FromDataController.ReadWriteResponse)
+    //     //输出io.ScarchPadIO.FromMemoryLoader.ReadWriteResponse
+    //     printf("io.ScarchPadIO.FromMemoryLoader.ReadWriteResponse = %d\n", io.ScarchPadIO.FromMemoryLoader.ReadWriteResponse)
+    // }
     val SramAddr_0 = PriorityMux(ChoseOneHot_0, Seq(
         io.ScarchPadIO.FromDataController.ReadBankAddr.bits,
         io.ScarchPadIO.FromDataController.WriteBankAddr.bits,

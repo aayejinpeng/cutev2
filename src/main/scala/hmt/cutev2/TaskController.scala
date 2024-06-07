@@ -55,13 +55,13 @@ class TaskController(implicit p: Parameters) extends Module with HWParameters{
     io.ConfigInfo.bits.ApplicationTensor_D.MemoryOrder := MemoryOrderType.OrderType_Mb_Nb
     io.ConfigInfo.bits.ApplicationTensor_D.Conherent := true.B
 
-    io.ConfigInfo.bits.ApplicationTensor_M := 64.U
-    io.ConfigInfo.bits.ApplicationTensor_N := 64.U
-    io.ConfigInfo.bits.ApplicationTensor_K := 64.U
+    io.ConfigInfo.bits.ApplicationTensor_M := Tensor_M.U
+    io.ConfigInfo.bits.ApplicationTensor_N := Tensor_N.U
+    io.ConfigInfo.bits.ApplicationTensor_K := Tensor_K.U
 
-    io.ConfigInfo.bits.ScaratchpadTensor_K := 64.U
-    io.ConfigInfo.bits.ScaratchpadTensor_N := 64.U
-    io.ConfigInfo.bits.ScaratchpadTensor_M := 64.U
+    io.ConfigInfo.bits.ScaratchpadTensor_K := Tensor_K.U
+    io.ConfigInfo.bits.ScaratchpadTensor_N := Tensor_N.U
+    io.ConfigInfo.bits.ScaratchpadTensor_M := Tensor_M.U
 
     io.ConfigInfo.bits.taskType := CUTETaskType.TaskTypeMatrixMul
     io.ConfigInfo.bits.dataType := ElementDataType.DataTypeUInt8
@@ -79,13 +79,13 @@ class TaskController(implicit p: Parameters) extends Module with HWParameters{
     // when(test_count === 100000000.U){
     //     test_count := 0.U
     // }
-    io.ConfigInfo.bits.ScaratchpadChosen.ADataControllerChosenIndex := 1.U
-    io.ConfigInfo.bits.ScaratchpadChosen.BDataControllerChosenIndex := 1.U
-    io.ConfigInfo.bits.ScaratchpadChosen.CDataControllerChosenIndex := 1.U
+    io.TaskCtrlInfo.ScaratchpadChosen.ADataControllerChosenIndex := 1.U
+    io.TaskCtrlInfo.ScaratchpadChosen.BDataControllerChosenIndex := 1.U
+    io.TaskCtrlInfo.ScaratchpadChosen.CDataControllerChosenIndex := 1.U
 
-    io.ConfigInfo.bits.ScaratchpadChosen.AMemoryLoaderChosenIndex := 0.U
-    io.ConfigInfo.bits.ScaratchpadChosen.BMemoryLoaderChosenIndex := 0.U
-    io.ConfigInfo.bits.ScaratchpadChosen.CMemoryLoaderChosenIndex := 0.U
+    io.TaskCtrlInfo.ScaratchpadChosen.AMemoryLoaderChosenIndex := 0.U
+    io.TaskCtrlInfo.ScaratchpadChosen.BMemoryLoaderChosenIndex := 0.U
+    io.TaskCtrlInfo.ScaratchpadChosen.CMemoryLoaderChosenIndex := 0.U
 
     io.ConfigInfo.bits.MMUConfig.refillVaddr := io.ygjkctrl.config.bits.cfgData1
     io.ConfigInfo.bits.MMUConfig.refillPaddr := io.ygjkctrl.config.bits.cfgData2
@@ -97,6 +97,7 @@ class TaskController(implicit p: Parameters) extends Module with HWParameters{
     io.ConfigInfo.bits.CMemoryLoaderConfig.TaskType := CMemoryLoaderTaskType.TaskTypeTensorLoad
 
     io.ConfigInfo.valid := false.B
+    io.ConfigInfo.bits.ComputeGo := false.B
 
     val acc_run = RegInit(false.B)
     when(io.ygjkctrl.config.valid){
@@ -125,7 +126,7 @@ class TaskController(implicit p: Parameters) extends Module with HWParameters{
         acc_count := acc_count + 1.U
     }
 
-    val idel_test :: load_test :: store_test :: end_acc :: Nil = Enum(4)
+    val idel_test :: load_test :: compute_test :: store_test :: end_acc :: Nil = Enum(5)
     val test_state = RegInit(idel_test)
 
     when(io.ygjkctrl.config.valid)
@@ -169,9 +170,9 @@ class TaskController(implicit p: Parameters) extends Module with HWParameters{
             io.ConfigInfo.bits.ApplicationTensor_M := ApplicationTensor_M
             io.ConfigInfo.bits.ApplicationTensor_N := ApplicationTensor_N
             io.ConfigInfo.bits.ApplicationTensor_K := ApplicationTensor_K
-            io.ConfigInfo.bits.ScaratchpadTensor_K := 64.U
-            io.ConfigInfo.bits.ScaratchpadTensor_N := 64.U
-            io.ConfigInfo.bits.ScaratchpadTensor_M := 64.U
+            io.ConfigInfo.bits.ScaratchpadTensor_K := Tensor_K.U
+            io.ConfigInfo.bits.ScaratchpadTensor_N := Tensor_N.U
+            io.ConfigInfo.bits.ScaratchpadTensor_M := Tensor_M.U
 
             test_state := load_test
             io.ConfigInfo.bits.CMemoryLoaderConfig.TaskType := CMemoryLoaderTaskType.TaskTypeTensorLoad
@@ -215,20 +216,91 @@ class TaskController(implicit p: Parameters) extends Module with HWParameters{
     {
         when(test_state === load_test && io.TaskCtrlInfo.AML.LoadEnd.valid === true.B && io.TaskCtrlInfo.BML.LoadEnd.valid === true.B && io.TaskCtrlInfo.CML.LoadEnd.valid === true.B)
         {
-            // io.TaskCtrlInfo.AML.LoadEnd.ready := true.B
-            // io.TaskCtrlInfo.BML.LoadEnd.ready := true.B
+            io.TaskCtrlInfo.AML.LoadEnd.ready := true.B
+            io.TaskCtrlInfo.BML.LoadEnd.ready := true.B
             io.TaskCtrlInfo.CML.LoadEnd.ready := true.B
             
-            test_state := store_test
-            
-        }.elsewhen(test_state === store_test)
-        {
-            io.ConfigInfo.bits.CMemoryLoaderConfig.TaskType := CMemoryLoaderTaskType.TaskTypeTensorStore
+            test_state := compute_test
+
+            io.ConfigInfo.bits.ComputeGo := true.B
+            io.ConfigInfo.valid := true.B
+
+            io.ConfigInfo.bits.taskType := CUTETaskType.TaskTypeMatrixMul
+            io.ConfigInfo.bits.dataType := ElementDataType.DataTypeUInt8
+            io.ConfigInfo.bits.ApplicationTensor_A.ApplicationTensor_A_BaseVaddr := ApplicationTensor_A_BaseVaddr
+            io.ConfigInfo.bits.ApplicationTensor_A.BlockTensor_A_BaseVaddr := ApplicationTensor_A_BaseVaddr + 0.U*ApplicationTensor_M*ApplicationTensor_K
+            io.ConfigInfo.bits.ApplicationTensor_A.MemoryOrder := MemoryOrderType.OrderType_Mb_Kb
+            io.ConfigInfo.bits.ApplicationTensor_A.Conherent := true.B
+            io.ConfigInfo.bits.ApplicationTensor_B.ApplicationTensor_B_BaseVaddr := ApplicationTensor_B_BaseVaddr
+            io.ConfigInfo.bits.ApplicationTensor_B.BlockTensor_B_BaseVaddr := ApplicationTensor_B_BaseVaddr + 0.U*ApplicationTensor_K*ApplicationTensor_N
+            io.ConfigInfo.bits.ApplicationTensor_B.MemoryOrder := MemoryOrderType.OrderType_Nb_Kb
+            io.ConfigInfo.bits.ApplicationTensor_B.Conherent := true.B
+            io.ConfigInfo.bits.ApplicationTensor_C.ApplicationTensor_C_BaseVaddr := ApplicationTensor_C_BaseVaddr
+            io.ConfigInfo.bits.ApplicationTensor_C.BlockTensor_C_BaseVaddr := ApplicationTensor_C_BaseVaddr + 0.U*ApplicationTensor_M*ApplicationTensor_N
+            io.ConfigInfo.bits.ApplicationTensor_C.MemoryOrder := MemoryOrderType.OrderType_Mb_Nb
+            io.ConfigInfo.bits.ApplicationTensor_C.Conherent := true.B
             io.ConfigInfo.bits.ApplicationTensor_D.ApplicationTensor_D_BaseVaddr := ApplicationTensor_D_BaseVaddr
             io.ConfigInfo.bits.ApplicationTensor_D.BlockTensor_D_BaseVaddr := ApplicationTensor_D_BaseVaddr + 0.U*ApplicationTensor_M*ApplicationTensor_N
             io.ConfigInfo.bits.ApplicationTensor_D.MemoryOrder := MemoryOrderType.OrderType_Mb_Nb
             io.ConfigInfo.bits.ApplicationTensor_D.Conherent := true.B
-            io.ConfigInfo.valid := true.B
+            io.ConfigInfo.bits.ApplicationTensor_M := ApplicationTensor_M
+            io.ConfigInfo.bits.ApplicationTensor_N := ApplicationTensor_N
+            io.ConfigInfo.bits.ApplicationTensor_K := ApplicationTensor_K
+            io.ConfigInfo.bits.ScaratchpadTensor_K := Tensor_K.U
+            io.ConfigInfo.bits.ScaratchpadTensor_N := Tensor_N.U
+            io.ConfigInfo.bits.ScaratchpadTensor_M := Tensor_M.U
+            
+        }.elsewhen(test_state === compute_test)
+        {
+            io.TaskCtrlInfo.ScaratchpadChosen.ADataControllerChosenIndex := 0.U
+            io.TaskCtrlInfo.ScaratchpadChosen.BDataControllerChosenIndex := 0.U
+            io.TaskCtrlInfo.ScaratchpadChosen.CDataControllerChosenIndex := 0.U
+
+            io.TaskCtrlInfo.ScaratchpadChosen.AMemoryLoaderChosenIndex := 1.U
+            io.TaskCtrlInfo.ScaratchpadChosen.BMemoryLoaderChosenIndex := 1.U
+            io.TaskCtrlInfo.ScaratchpadChosen.CMemoryLoaderChosenIndex := 1.U
+            //用A0B0C0算，存C0
+            io.TaskCtrlInfo.ADC.ComputeEnd.ready := true.B
+            io.TaskCtrlInfo.BDC.ComputeEnd.ready := true.B
+            io.TaskCtrlInfo.CDC.ComputeEnd.ready := true.B
+            io.TaskCtrlInfo.ADC.TaskEnd.valid := true.B
+            io.TaskCtrlInfo.BDC.TaskEnd.valid := true.B
+            io.TaskCtrlInfo.CDC.TaskEnd.valid := true.B
+            io.TaskCtrlInfo.ADC.TaskEnd.bits := true.B
+            io.TaskCtrlInfo.BDC.TaskEnd.bits := true.B
+            io.TaskCtrlInfo.CDC.TaskEnd.bits := true.B
+            when(io.TaskCtrlInfo.CDC.ComputeEnd.valid === true.B && io.TaskCtrlInfo.BDC.ComputeEnd.valid === true.B && io.TaskCtrlInfo.ADC.ComputeEnd.valid === true.B)
+            {
+
+                io.TaskCtrlInfo.ScaratchpadChosen.ADataControllerChosenIndex := 1.U
+                io.TaskCtrlInfo.ScaratchpadChosen.BDataControllerChosenIndex := 1.U
+                io.TaskCtrlInfo.ScaratchpadChosen.CDataControllerChosenIndex := 1.U
+
+                io.TaskCtrlInfo.ScaratchpadChosen.AMemoryLoaderChosenIndex := 0.U
+                io.TaskCtrlInfo.ScaratchpadChosen.BMemoryLoaderChosenIndex := 0.U
+                io.TaskCtrlInfo.ScaratchpadChosen.CMemoryLoaderChosenIndex := 0.U
+                test_state := store_test
+                io.ConfigInfo.bits.CMemoryLoaderConfig.TaskType := CMemoryLoaderTaskType.TaskTypeTensorStore
+                io.ConfigInfo.bits.ApplicationTensor_D.ApplicationTensor_D_BaseVaddr := ApplicationTensor_D_BaseVaddr
+                io.ConfigInfo.bits.ApplicationTensor_D.BlockTensor_D_BaseVaddr := ApplicationTensor_D_BaseVaddr + 0.U*ApplicationTensor_M*ApplicationTensor_N
+                io.ConfigInfo.bits.ApplicationTensor_D.MemoryOrder := MemoryOrderType.OrderType_Mb_Nb
+                io.ConfigInfo.bits.ApplicationTensor_D.Conherent := true.B
+                io.ConfigInfo.valid := true.B
+            }
+
+
+            
+
+        }.elsewhen(test_state === store_test)
+        {
+            //算完之后，将0存到内存
+            io.TaskCtrlInfo.ScaratchpadChosen.ADataControllerChosenIndex := 1.U
+            io.TaskCtrlInfo.ScaratchpadChosen.BDataControllerChosenIndex := 1.U
+            io.TaskCtrlInfo.ScaratchpadChosen.CDataControllerChosenIndex := 1.U
+
+            io.TaskCtrlInfo.ScaratchpadChosen.AMemoryLoaderChosenIndex := 0.U
+            io.TaskCtrlInfo.ScaratchpadChosen.BMemoryLoaderChosenIndex := 0.U
+            io.TaskCtrlInfo.ScaratchpadChosen.CMemoryLoaderChosenIndex := 0.U
             when(io.TaskCtrlInfo.CML.LoadEnd.valid === true.B)
             {
                 test_state  := idel_test
@@ -237,6 +309,11 @@ class TaskController(implicit p: Parameters) extends Module with HWParameters{
         }.otherwise{
             
         }   
+    }
+    when(acc_count >= 50000.U)
+    {
+        start := false.B
+        acc_run := false.B
     }
     // io.ConfigInfo.valid := configvalid
     // when(io.ConfigInfo.fire)

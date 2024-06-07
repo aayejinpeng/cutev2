@@ -19,7 +19,7 @@ class CDataController(implicit p: Parameters) extends Module with HWParameters{
         val ConfigInfo = Flipped(DecoupledIO(new ConfigInfoIO))
         val Matrix_C = DecoupledIO(UInt((ResultWidth*Matrix_M*Matrix_N).W))
         val ResultMatrix_D = Flipped(DecoupledIO(UInt((ResultWidth*Matrix_M*Matrix_N).W)))
-        val CaculateEnd = DecoupledIO(Bool())
+        val SwitchScarchPad = DecoupledIO(Bool())
         val TaskEnd = Flipped(DecoupledIO(Bool()))
     })
 
@@ -29,8 +29,8 @@ class CDataController(implicit p: Parameters) extends Module with HWParameters{
     io.ResultMatrix_D.ready := false.B
     io.ConfigInfo.ready := false.B
     io.TaskEnd.ready := false.B
-    io.CaculateEnd.bits := false.B
-    io.CaculateEnd.valid := false.B
+    io.SwitchScarchPad.bits := false.B
+    io.SwitchScarchPad.valid := false.B
     io.FromScarchPadIO.Chosen := false.B
     io.FromScarchPadIO.WriteBankAddr.valid := false.B
     io.FromScarchPadIO.WriteBankAddr.bits := 0.U.asTypeOf(io.FromScarchPadIO.WriteBankAddr.bits)
@@ -107,7 +107,7 @@ class CDataController(implicit p: Parameters) extends Module with HWParameters{
 
     val Store_M_Iterator = RegInit(0.U(ScaratchpadMaxTensorDimBitSize.W))
     val Store_N_Iterator = RegInit(0.U(ScaratchpadMaxTensorDimBitSize.W))
-    // val Store_K_Iterator = RegInit(0.U(ScaratchpadMaxTensorDimBitSize.W))
+    val Store_K_Iterator = RegInit(0.U(ScaratchpadMaxTensorDimBitSize.W))
 
     //TODO:这里是否需要一个这样的除法电路？实际上一个截断/移位电路就可以了？因为我们一定是整数倍的，多余的地方补0即可。
     //如果是除法电路，这里需要几拍？其实不会，Matrix_M一定是2的幂次，所有这个除法一定会被优化成移位，一定是一拍完成的，一定会优化成移位电路
@@ -128,9 +128,17 @@ class CDataController(implicit p: Parameters) extends Module with HWParameters{
     // 7   #..............   |                   (3,1) |    ....,....   ....,.... 
     // 8   $..............   | ..................................................
 
-    val Max_Caculate_Iter = M_IteratorMax * N_IteratorMax
-    val CVectorCount = RegInit(0.U(32.W))
-    val DVectorCount = RegInit(0.U(32.W))
+    //InputFIFO
+    val InputFIFO = RegInit(VecInit(Seq.fill(InputFIFODepth)(0.U((Matrix_M*Matrix_N*ResultWidth).W))))
+    val InputFIFOValid = RegInit(VecInit(Seq.fill(InputFIFODepth)(false.B)))
+    val InputFIFOHead = RegInit(0.U(log2Ceil(InputFIFODepth).W))
+    val InputFIFOTail = RegInit(0.U(log2Ceil(InputFIFODepth).W))
+    val InputFIFOFull = InputFIFOHead === WrapInc(InputFIFOTail, InputFIFODepth)
+    val SafeInputFIFOFull = InputFIFOHead === WrapInc(WrapInc(InputFIFOTail, InputFIFODepth),InputFIFODepth)
+    val PreInputFIFOValid = RegInit(false.B)
+    val InputFIFOEmpty = InputFIFOHead === InputFIFOTail
+    val InputFIFOReady = RegInit(false.B)
+    
     //对Scaratchpad的数据请求
     val ReadRequest = WireInit(false.B)
     val WriteRequset = WireInit(false.B)
@@ -141,67 +149,116 @@ class CDataController(implicit p: Parameters) extends Module with HWParameters{
             M_Iterator := 0.U
             N_Iterator := 0.U
             K_Iterator := 0.U
+            Store_M_Iterator := 0.U
+            Store_N_Iterator := 0.U
+            Store_K_Iterator := 0.U
             //阶段1，计算初始化完成，开始工作
             calculate_state := s_cal_working
+            store_calculate_state := s_cal_working
 
         }.elsewhen(calculate_state === s_cal_working){
             //阶段2，计算开始，计算对Scarchpad的取数地址
 
             //循环的最外层是M，然后是N
             val next_addr = Wire(UInt(CScratchpadBankNEntrys.W))
-            val store_addr = RegInit(0.U(CScratchpadBankNEntrys.W))
-            io.FromScarchPadIO.ReadBankAddr.valid := false.B
-            
-            next_addr := M_Iterator * N_IteratorMax + N_Iterator
-            when(CVectorCount < Max_Caculate_Iter){
+            io.FromScarchPadIO.WriteRequestData.valid := true.B
+            ReadRequest := ScarchPadReadRequestBankAddr.valid
+            when(ScarchPadReadResponseData.valid){
                 //计算取数地址
-                when(K_Iterator === 0.U)
-                {
-                    ReadRequest := true.B
-                    io.FromScarchPadIO.ReadBankAddr.valid := true.B
+                //TODO:同样的问题，这里是否需要一个乘法电路？估计会被EDA优化成移位电路
+                next_addr := M_Iterator * N_IteratorMax + N_Iterator + 1.U
+                ScarchPadReadRequestBankAddr.bits.foreach(_ := next_addr)
+                //只有SafeInputFIFOFull的时候，我们才不取数
+                when(!SafeInputFIFOFull){
+                    ScarchPadReadRequestBankAddr.valid := true.B
+                }.otherwise{
+                    ScarchPadReadRequestBankAddr.valid := false.B
                 }
-                K_Iterator := K_Iterator + 1.U
-                when(K_Iterator === K_IteratorMax - 1.U){
-                    K_Iterator := 0.U
-                    N_Iterator := N_Iterator + 1.U
-                    when(N_Iterator === N_IteratorMax - 1.U){
-                        N_Iterator := 0.U
-                        M_Iterator := M_Iterator + 1.U
+                when(M_Iterator < M_IteratorMax - 1.U){
+                    when(N_Iterator < N_IteratorMax - 1.U){
+                        when(K_Iterator < K_IteratorMax - 1.U){ 
+                            //这里选择使用ScarchPadData.valid作为判断条件，是一个保守，且能处理ScarchPadData的bank冲突的时机
+                            K_Iterator := K_Iterator + 1.U
+
+                        }.otherwise{
+                            K_Iterator := 0.U
+                            N_Iterator := N_Iterator + 1.U
+                        }
+                    }.otherwise{
+                        when(K_Iterator < K_IteratorMax - 1.U){ 
+                            //这里选择使用ScarchPadData.valid作为判断条件，是一个保守，且能处理ScarchPadData的bank冲突的时机
+                            K_Iterator := K_Iterator + 1.U
+
+                        }.otherwise{
+                            K_Iterator := 0.U
+                            N_Iterator := 0.U
+                            M_Iterator := M_Iterator + 1.U
+                        }
                     }
+                }.otherwise{
+                    when(N_Iterator < N_IteratorMax - 1.U){
+                        when(K_Iterator < K_IteratorMax - 1.U){ 
+                            //这里选择使用ScarchPadData.valid作为判断条件，是一个保守，且能处理ScarchPadData的bank冲突的时机
+                            K_Iterator := K_Iterator + 1.U
+
+                        }.otherwise{
+                            K_Iterator := 0.U
+                            N_Iterator := N_Iterator + 1.U
+                        }
+                    }.otherwise{
+                        when(K_Iterator < K_IteratorMax - 1.U){ 
+                            //这里选择使用ScarchPadData.valid作为判断条件，是一个保守，且能处理ScarchPadData的bank冲突的时机
+                            K_Iterator := K_Iterator + 1.U
+
+                        }.otherwise{
+                            //阶段3，最后一个数据也已经返回了
+                            calculate_state := s_cal_end
+                            ScarchPadReadRequestBankAddr.valid := false.B
+                        }
+                    }
+
                 }
             }.otherwise{
-                io.FromScarchPadIO.ReadBankAddr.valid := false.B
+                //计算取数地址
+                //TODO:同样的问题，这里是否需要一个乘法电路？估计会被EDA优化成移位电路
+                next_addr := M_Iterator * N_IteratorMax + N_Iterator
+                ScarchPadReadRequestBankAddr.bits.foreach(_ := next_addr)
+                when(!SafeInputFIFOFull){
+                    ScarchPadReadRequestBankAddr.valid := true.B
+                }.otherwise{
+                    ScarchPadReadRequestBankAddr.valid := false.B
+                }
+                //所有寄存器值不变
+                N_Iterator := N_Iterator
+                M_Iterator := M_Iterator
             }
+            //填入fifo
+            //注意ScaratchPad的数据会有一周期的延迟，且这个数据是不支持握手的，所以我们需要保证这个数据一定能被填入fifo。
             when(ScarchPadReadResponseData.valid){
-                io.Matrix_C.valid := true.B
-                io.Matrix_C.bits := ScarchPadReadResponseData.bits.asUInt
-                CVectorCount := CVectorCount + 1.U
-                printf("[CDataController]CDataController: CVectorCount is %d\n", CVectorCount)
-            }
-
-            when(io.ResultMatrix_D.valid){
-                WriteRequset := true.B
-                io.FromScarchPadIO.WriteBankAddr.valid := true.B
-                io.FromScarchPadIO.WriteRequestData.valid := true.B
-                io.FromScarchPadIO.WriteRequestData.bits := io.ResultMatrix_D.bits.asTypeOf(io.FromScarchPadIO.WriteRequestData.bits)
-                io.ResultMatrix_D.ready := true.B
-                io.FromScarchPadIO.WriteBankAddr.bits.map(_ := store_addr)
-                store_addr := store_addr + 1.U
-                DVectorCount := DVectorCount + 1.U
-                printf("[CDataController]CDataController: DVectorCount is %d\n", DVectorCount)
-                when(DVectorCount === Max_Caculate_Iter - 1.U){
-                    calculate_state := s_cal_end
+                InputFIFO(InputFIFOHead) := ScarchPadReadResponseData.bits.asUInt
+                InputFIFOValid(InputFIFOHead) := true.B
+                when(InputFIFOHead+1.U===InputFIFODepth.U){
+                    InputFIFOHead := 0.U
+                }.otherwise{
+                    InputFIFOHead := InputFIFOHead + 1.U
                 }
             }
             
         }.elsewhen(calculate_state === s_cal_end){
             //计算结束，要么结束计算，要么切换ScarchPad
-            io.CaculateEnd.valid := true.B
-            io.CaculateEnd.bits := true.B
-            printf("[CDataController]CDataController: CaculateEnd is %d\n", io.CaculateEnd.bits)
-            when(io.CaculateEnd.ready){
+            io.SwitchScarchPad.valid := true.B
+            io.SwitchScarchPad.bits := true.B
+            when(io.TaskEnd.valid){
                 state := s_idle
                 calculate_state := s_cal_idle
+                io.TaskEnd.ready := true.B
+                io.SwitchScarchPad.valid := false.B
+                io.SwitchScarchPad.bits := false.B
+            }.otherwise{
+                io.TaskEnd.ready := false.B
+                when(io.SwitchScarchPad.fire){
+                    calculate_state := s_cal_init
+                }
             }
 
         }.elsewhen(calculate_state === s_cal_idle){
@@ -212,6 +269,71 @@ class CDataController(implicit p: Parameters) extends Module with HWParameters{
             //加速器闲闲没事做
         }
 
+        when(store_calculate_state === s_cal_init){
+            //初始化跟计算一起被初始化了
+            // Store_M_Iterator := 0.U
+            // Store_N_Iterator := 0.U
+            // Store_K_Iterator := 0.U
+            // store_calculate_state := s_cal_working
+        }.elsewhen(store_calculate_state === s_cal_working){
+            //阶段2，计算开始，计算对Scarchpad的取数地址
+            //循环的最外层是M，然后是N
+            val store_addr = WireInit(0.U(log2Ceil(CScratchpadBankNEntrys).W))
+            //如果ResultMatrix_D有效，那么我们就把数据存入Scartchpad
+            //此时要看是否当前的任务是被选中的任务
+            
+            WriteRequset := io.ResultMatrix_D.valid
+
+            when(io.ResultMatrix_D.valid && io.FromScarchPadIO.ReadWriteResponse(ScaratchpadTaskType.WriteFromDataControllerIndex) === true.B){
+                //数据有效，且ScarchPad仲裁后我们可以进行写入，则进行写入
+                io.FromScarchPadIO.WriteRequestData.valid := true.B
+                io.FromScarchPadIO.WriteBankAddr.valid := true.B
+                io.ResultMatrix_D.ready := true.B
+                store_addr := Store_M_Iterator * N_IteratorMax + Store_N_Iterator
+                io.FromScarchPadIO.WriteBankAddr.bits.foreach(_ := store_addr)
+                io.FromScarchPadIO.WriteRequestData.bits := io.ResultMatrix_D.bits.asTypeOf(io.FromScarchPadIO.WriteRequestData.bits)
+                when(Store_M_Iterator < M_IteratorMax){
+                    when(Store_N_Iterator < N_IteratorMax){
+                        Store_N_Iterator := Store_N_Iterator + 1.U
+                    }.otherwise{
+                        Store_N_Iterator := 0.U
+                        Store_M_Iterator := Store_M_Iterator + 1.U
+                    }
+                }.otherwise{
+                    //阶段3，最后一个数据也已经返回了
+                    store_calculate_state := s_cal_end
+                    io.FromScarchPadIO.WriteBankAddr.valid := false.B
+                    io.FromScarchPadIO.WriteRequestData.valid := false.B
+                }
+            }.otherwise{
+                //所有寄存器值不变
+                Store_N_Iterator := Store_N_Iterator
+                Store_M_Iterator := Store_M_Iterator
+            }
+        }.elsewhen(store_calculate_state === s_cal_end){
+            //计算结束，要么结束计算，要么切换ScarchPad
+            //不知道要干什么，估计要看下一个task的fifo的任务～
+        }.elsewhen(store_calculate_state === s_cal_idle){
+            //计算状态机空闲
+            //加速器闲闲没事做
+        }.otherwise{
+            //未定义状态
+            //加速器闲闲没事做
+        }
+    }
+
+    //从FIFO中可以任意时间取数据
+    //TE很清楚自己拿到的数据会用在哪个位置，不需要记录位置信息
+
+    io.Matrix_C.valid := InputFIFOValid(InputFIFOTail)
+    io.Matrix_C.bits := InputFIFO(InputFIFOTail)
+    when(io.Matrix_C.fire){
+        InputFIFOValid(InputFIFOTail) := false.B
+        when(InputFIFOTail + 1.U === InputFIFODepth.U){
+            InputFIFOTail := 0.U
+        }.otherwise{
+            InputFIFOTail := InputFIFOTail + 1.U
+        }
     }
     
     //像Scrartchpad请求数据的汇总

@@ -44,13 +44,16 @@ class AScratchpad extends Module with HWParameters{
     
     //TODO:fifoready?
     //TODO:我们要做成写优先的Scartchpad
-    val write_ready = io.ScarchPadIO.FromMemoryLoader.BankAddr.valid && !io.ScarchPadIO.FromDataController.BankAddr.valid && MemoryLoaderChosen && io.ScarchPadIO.FromMemoryLoader.Data.valid
-    val read_ready = io.ScarchPadIO.FromDataController.BankAddr.valid && !io.ScarchPadIO.FromMemoryLoader.BankAddr.valid && DataControllerChosen && !write_ready //写优先～
+    // val write_ready = io.ScarchPadIO.FromMemoryLoader.BankAddr.valid && !io.ScarchPadIO.FromDataController.BankAddr.valid && MemoryLoaderChosen && io.ScarchPadIO.FromMemoryLoader.Data.valid
+    // val read_ready = io.ScarchPadIO.FromDataController.BankAddr.valid && !io.ScarchPadIO.FromMemoryLoader.BankAddr.valid && DataControllerChosen && !write_ready //写优先～
+    val write_go = io.ScarchPadIO.FromMemoryLoader.BankAddr.valid && !io.ScarchPadIO.FromDataController.BankAddr.valid && io.ScarchPadIO.MemoryLoaderValid && io.ScarchPadIO.FromMemoryLoader.Data.valid
+    val read_go = io.ScarchPadIO.FromDataController.BankAddr.valid && !io.ScarchPadIO.FromMemoryLoader.BankAddr.valid && io.ScarchPadIO.DataControllerValid && !write_go //写优先～
     //为输入信号赋ready
-    io.ScarchPadIO.FromDataController.BankAddr.ready := read_ready
+    io.ScarchPadIO.FromDataController.BankAddr.ready := read_go
     // io.ScarchPadIO.FromMemoryLoader.BankAddr.ready := write_ready
     //SRAM下一拍的返回结果，所以使用上一拍的ready作为valid
-    io.ScarchPadIO.FromDataController.Data.valid := RegNext(read_ready)
+    io.ScarchPadIO.FromDataController.Data.valid := RegNext(read_go)
+    val debug_s1_bank_addr = RegNext(DataControllerBankAddr)
     //实例化多个sram为多个bank
     val sram_banks = (0 until AScratchpadNBanks) map { i =>
 
@@ -60,9 +63,14 @@ class AScratchpad extends Module with HWParameters{
         
         //第0周期的数据
         val s0_bank_read_addr = DataControllerBankAddr(i)
-        val s0_bank_read_valid = read_ready
+        val s0_bank_read_valid = read_go
         //第1周期的数据
         val s1_bank_read_data = bank.read(s0_bank_read_addr,s0_bank_read_valid).asUInt
+        when(RegNext(read_go))
+        {
+            //输出读的信息
+            printf("[ASPD_Read]Bank(%d): debug_s1_bank_addr = %d ,s1_bank_read_data = %x\n", i.U, debug_s1_bank_addr(0), s1_bank_read_data)
+        }
         // val s1_bank_read_addr = RegEnable(s0_bank_read_addr, s0_bank_read_valid)
         // val s1_bank_read_valid = RegNext(s0_bank_read_valid)
         DataControllerData(i) := s1_bank_read_data
@@ -72,8 +80,9 @@ class AScratchpad extends Module with HWParameters{
         val s0_bank_write_addr = MemoryLoaderBankAddr
         val s0_bank_write_data = MemoryLoaderData
         val s0_bank_write_valid = io.ScarchPadIO.FromMemoryLoader.Data.valid && io.ScarchPadIO.FromMemoryLoader.BankAddr.valid && io.ScarchPadIO.FromMemoryLoader.BankId.valid
-        when(write_ready && s0_bank_write_valid){
+        when(write_go && s0_bank_write_valid && i.U === MemoryLoaderBankId){
             bank.write(s0_bank_write_addr, s0_bank_write_data)
+            printf("[ASPD_Write]Bank(%d): s0_bank_write_addr = %d ,s0_bank_write_data = %x\n", i.U, s0_bank_write_addr, s0_bank_write_data)
         }
 
         bank

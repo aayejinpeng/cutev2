@@ -124,31 +124,47 @@ trait HWParameters{
 
 class TaskCtrlInfo(implicit p: Parameters) extends BoomBundle with HWParameters with YGJKParameters{
     val ADC = (new Bundle {
+        // val TaskWorking = Valid(Bool())
         val TaskEnd = DecoupledIO(Bool())
         val ComputeEnd = Flipped(DecoupledIO(Bool()))
     })
     val BDC = (new Bundle {
+        // val TaskWorking = Valid(Bool())
         val TaskEnd = DecoupledIO(Bool())
         val ComputeEnd = Flipped(DecoupledIO(Bool()))
     })
     val CDC = (new Bundle {
+        // val TaskWorking = Valid(Bool())
         val TaskEnd = DecoupledIO(Bool())
         val ComputeEnd = Flipped(DecoupledIO(Bool()))
     })
 
     val AML = (new Bundle {
+        // val TaskWorking = Valid(Bool())
         val TaskEnd = DecoupledIO(Bool())
         val LoadEnd = Flipped(DecoupledIO(Bool()))
     })
 
     val BML = (new Bundle {
+        // val TaskWorking = Valid(Bool())
         val TaskEnd = DecoupledIO(Bool())
         val LoadEnd = Flipped(DecoupledIO(Bool()))
     })
 
     val CML = (new Bundle {
+        // val TaskWorking = Valid(Bool())
         val TaskEnd = DecoupledIO(Bool())
         val LoadEnd = Flipped(DecoupledIO(Bool()))
+    })
+
+    val ScaratchpadChosen = (new Bundle {
+        val ADataControllerChosenIndex = UInt(1.W)
+        val BDataControllerChosenIndex = UInt(1.W)
+        val CDataControllerChosenIndex = UInt(1.W)
+
+        val AMemoryLoaderChosenIndex = UInt(1.W)
+        val BMemoryLoaderChosenIndex = UInt(1.W)
+        val CMemoryLoaderChosenIndex = UInt(1.W)
     })
 }
 
@@ -185,20 +201,11 @@ class ConfigInfoIO(implicit p: Parameters) extends BoomBundle with HWParameters 
     val ApplicationTensor_N = (UInt(ApplicationMaxTensorSizeBitSize.W))
     val ApplicationTensor_K = (UInt(ApplicationMaxTensorSizeBitSize.W))
 
-    val ScaratchpadTensor_M = (UInt(ScaratchpadMaxTensorDimBitSize.W)) //Scaratchpad当前处理的矩阵乘的M //TODO:
+    val ScaratchpadTensor_M = (UInt(ScaratchpadMaxTensorDimBitSize.W)) //Scaratchpad当前处理的矩阵乘的M
     val ScaratchpadTensor_N = (UInt(ScaratchpadMaxTensorDimBitSize.W)) //Scaratchpad当前处理的矩阵乘的N
     val ScaratchpadTensor_K = (UInt(ScaratchpadMaxTensorDimBitSize.W)) //Scaratchpad当前处理的矩阵乘的K
 
-    val ScaratchpadChosen = (new Bundle {
-        val ADataControllerChosenIndex = UInt(1.W)
-        val BDataControllerChosenIndex = UInt(1.W)
-        val CDataControllerChosenIndex = UInt(1.W)
-
-        val AMemoryLoaderChosenIndex = UInt(1.W)
-        val BMemoryLoaderChosenIndex = UInt(1.W)
-        val CMemoryLoaderChosenIndex = UInt(1.W)
-    })
-
+    val ComputeGo = (Bool())
 
 
     val dataType = (UInt(ElementDataType.DataTypeBitWidth.W)) //0-矩阵乘，1-卷积

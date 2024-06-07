@@ -55,21 +55,26 @@ class CUTEV2Top(implicit p: Parameters) extends Module with HWParameters{
     
     
     //ADC能不能切换ScarchPad，要协商的东西还挺多的。
-    ASPad_0.ScarchPadIO.FromDataController <> ADC.FromScarchPadIO
+    ASPad_0.ScarchPadIO.FromDataController <> ADC.FromScarchPadIO //有问题的写法，改成全0的输入
     ASPad_1.ScarchPadIO.FromDataController <> ADC.FromScarchPadIO
-    when(TaskCtrl.ConfigInfo.bits.ScaratchpadChosen.ADataControllerChosenIndex === 0.U)
+    when(TaskCtrl.TaskCtrlInfo.ScaratchpadChosen.ADataControllerChosenIndex === 0.U)
     {
+        ASPad_0.ScarchPadIO.FromDataController <> ADC.FromScarchPadIO
         ASPad_0.ScarchPadIO.DataControllerValid := true.B
         ASPad_1.ScarchPadIO.DataControllerValid := false.B
+        ASPad_1.ScarchPadIO.FromDataController.BankAddr.valid := false.B
     }.otherwise{
         ASPad_0.ScarchPadIO.DataControllerValid := false.B
+        ASPad_0.ScarchPadIO.FromDataController.BankAddr.valid := false.B
+        ASPad_1.ScarchPadIO.FromDataController <> ADC.FromScarchPadIO
         ASPad_1.ScarchPadIO.DataControllerValid := true.B
+        
     }
-    ADC.FromScarchPadIO <> ASPad_0.ScarchPadIO.FromDataController
+    // ADC.FromScarchPadIO <> ASPad_0.ScarchPadIO.FromDataController
     // ADC.FromScarchPadIO <> Mux(, ASPad_0.ScarchPadIO.FromDataController, ASPad_1.ScarchPadIO.FromDataController)
     ADC.ConfigInfo.bits := TaskCtrl.ConfigInfo.bits
-    ADC.ConfigInfo.valid := false.B //TaskCtrl.ConfigInfo.valid
-    ADC.SwitchScarchPad.ready := true.B //实际上要看具体的另外一个ScarchPad的memoryloader的任务是否完成了。//TODO:
+    ADC.ConfigInfo.valid := TaskCtrl.ConfigInfo.valid //TaskCtrl.ConfigInfo.valid
+    ADC.CaculateEnd.ready := true.B //实际上要看具体的另外一个ScarchPad的memoryloader的任务是否完成了。//TODO:
     ADC.TaskEnd.bits := true.B //TODO:
     ADC.TaskEnd.valid := true.B //TODO:
 
@@ -81,13 +86,17 @@ class CUTEV2Top(implicit p: Parameters) extends Module with HWParameters{
 
     ASPad_0.ScarchPadIO.FromMemoryLoader <> AML.ToScarchPadIO
     ASPad_1.ScarchPadIO.FromMemoryLoader <> AML.ToScarchPadIO
-    when(TaskCtrl.ConfigInfo.bits.ScaratchpadChosen.AMemoryLoaderChosenIndex === 0.U)
+    when(TaskCtrl.TaskCtrlInfo.ScaratchpadChosen.AMemoryLoaderChosenIndex === 0.U)
     {
         //TODO:改ScarchPad内的处理逻辑。
         ASPad_0.ScarchPadIO.MemoryLoaderValid := true.B
+        ASPad_0.ScarchPadIO.FromMemoryLoader <> AML.ToScarchPadIO
         ASPad_1.ScarchPadIO.MemoryLoaderValid := false.B
+        ASPad_1.ScarchPadIO.FromMemoryLoader.BankAddr.valid := false.B
     }.otherwise{
         ASPad_0.ScarchPadIO.MemoryLoaderValid := false.B
+        ASPad_0.ScarchPadIO.FromMemoryLoader.BankAddr.valid := false.B
+        ASPad_1.ScarchPadIO.FromMemoryLoader <> AML.ToScarchPadIO
         ASPad_1.ScarchPadIO.MemoryLoaderValid := true.B
     }
     AML.ConfigInfo.bits := TaskCtrl.ConfigInfo.bits
@@ -99,17 +108,21 @@ class CUTEV2Top(implicit p: Parameters) extends Module with HWParameters{
     // BDC.FromScarchPadIO <> Mux(TaskCtrl.ConfigInfo.bits.ScaratchpadChosen.BDataControllerChosenIndex === 0.U, BSPad_0.ScarchPadIO.FromDataController, BSPad_1.ScarchPadIO.FromDataController)
     BSPad_0.ScarchPadIO.FromDataController <> BDC.FromScarchPadIO
     BSPad_1.ScarchPadIO.FromDataController <> BDC.FromScarchPadIO
-    when(TaskCtrl.ConfigInfo.bits.ScaratchpadChosen.BDataControllerChosenIndex === 0.U)
+    when(TaskCtrl.TaskCtrlInfo.ScaratchpadChosen.BDataControllerChosenIndex === 0.U)
     {
         BSPad_0.ScarchPadIO.DataControllerValid := true.B
+        BSPad_0.ScarchPadIO.FromDataController <> BDC.FromScarchPadIO
         BSPad_1.ScarchPadIO.DataControllerValid := false.B
+        BSPad_1.ScarchPadIO.FromDataController.BankAddr.valid := false.B
     }.otherwise{
         BSPad_0.ScarchPadIO.DataControllerValid := false.B
+        BSPad_0.ScarchPadIO.FromDataController.BankAddr.valid := false.B
         BSPad_1.ScarchPadIO.DataControllerValid := true.B
+        BSPad_1.ScarchPadIO.FromDataController <> BDC.FromScarchPadIO
     }
     BDC.ConfigInfo.bits := TaskCtrl.ConfigInfo.bits
-    BDC.ConfigInfo.valid := false.B
-    BDC.SwitchScarchPad.ready := true.B //实际上要看具体的另外一个ScarchPad的memoryloader的任务是否完成了。//TODO:
+    BDC.ConfigInfo.valid := TaskCtrl.ConfigInfo.valid
+    BDC.CaculateEnd.ready := true.B //实际上要看具体的另外一个ScarchPad的memoryloader的任务是否完成了。//TODO:
     BDC.TaskEnd.bits := true.B //TODO:
     BDC.TaskEnd.valid := true.B //TODO:
 
@@ -119,13 +132,17 @@ class CUTEV2Top(implicit p: Parameters) extends Module with HWParameters{
     // BML.ToScarchPadIO <> Mux(TaskCtrl.ConfigInfo.bits.ScaratchpadChosen.BMemoryLoaderChosenIndex === 0.U, BSPad_0.ScarchPadIO.FromMemoryLoader, BSPad_1.ScarchPadIO.FromMemoryLoader)
     BSPad_0.ScarchPadIO.FromMemoryLoader <> BML.ToScarchPadIO
     BSPad_1.ScarchPadIO.FromMemoryLoader <> BML.ToScarchPadIO
-    when(TaskCtrl.ConfigInfo.bits.ScaratchpadChosen.BMemoryLoaderChosenIndex === 0.U)
+    when(TaskCtrl.TaskCtrlInfo.ScaratchpadChosen.BMemoryLoaderChosenIndex === 0.U)
     {
         //TODO:改ScarchPad内的处理逻辑。
         BSPad_0.ScarchPadIO.MemoryLoaderValid := true.B
+        BSPad_0.ScarchPadIO.FromMemoryLoader <> BML.ToScarchPadIO
         BSPad_1.ScarchPadIO.MemoryLoaderValid := false.B
+        BSPad_1.ScarchPadIO.FromMemoryLoader.BankAddr.valid := false.B
     }.otherwise{
         BSPad_0.ScarchPadIO.MemoryLoaderValid := false.B
+        BSPad_1.ScarchPadIO.FromMemoryLoader <> BML.ToScarchPadIO
+        BSPad_0.ScarchPadIO.FromMemoryLoader.BankAddr.valid := false.B
         BSPad_1.ScarchPadIO.MemoryLoaderValid := true.B
     }
     BML.ConfigInfo.bits := TaskCtrl.ConfigInfo.bits
@@ -137,17 +154,21 @@ class CUTEV2Top(implicit p: Parameters) extends Module with HWParameters{
     // CDC.FromScarchPadIO <> Mux(TaskCtrl.ConfigInfo.bits.ScaratchpadChosen.CDataControllerChosenIndex === 0.U, CSPad_0.ScarchPadIO.FromDataController, CSPad_1.ScarchPadIO.FromDataController)
     CSPad_0.ScarchPadIO.FromDataController <> CDC.FromScarchPadIO
     CSPad_1.ScarchPadIO.FromDataController <> CDC.FromScarchPadIO
-    when(TaskCtrl.ConfigInfo.bits.ScaratchpadChosen.CDataControllerChosenIndex === 0.U)
+    when(TaskCtrl.TaskCtrlInfo.ScaratchpadChosen.CDataControllerChosenIndex === 0.U)
     {
         CSPad_0.ScarchPadIO.DataControllerValid := true.B
+        CSPad_0.ScarchPadIO.FromDataController <> CDC.FromScarchPadIO
         CSPad_1.ScarchPadIO.DataControllerValid := false.B
+        CSPad_1.ScarchPadIO.FromDataController.ReadWriteRequest := 0.U
     }.otherwise{
         CSPad_0.ScarchPadIO.DataControllerValid := false.B
+        CSPad_0.ScarchPadIO.FromDataController.ReadWriteRequest := 0.U
         CSPad_1.ScarchPadIO.DataControllerValid := true.B
+        CSPad_1.ScarchPadIO.FromDataController <> CDC.FromScarchPadIO
     }
     CDC.ConfigInfo.bits := TaskCtrl.ConfigInfo.bits
-    CDC.ConfigInfo.valid := false.B
-    CDC.SwitchScarchPad.ready := true.B //实际上要看具体的另外一个ScarchPad的memoryloader的任务是否完成了。//TODO:
+    CDC.ConfigInfo.valid := TaskCtrl.ConfigInfo.valid
+    CDC.CaculateEnd.ready := true.B //实际上要看具体的另外一个ScarchPad的memoryloader的任务是否完成了。//TODO:
     CDC.TaskEnd.bits := true.B //TODO:
     CDC.TaskEnd.valid := true.B //TODO:
     
@@ -157,14 +178,24 @@ class CUTEV2Top(implicit p: Parameters) extends Module with HWParameters{
     // CML.ToScarchPadIO <> Mux(TaskCtrl.ConfigInfo.bits.ScaratchpadChosen.CMemoryLoaderChosenIndex === 0.U, CSPad_0.ScarchPadIO.FromMemoryLoader, CSPad_1.ScarchPadIO.FromMemoryLoader)
     CSPad_0.ScarchPadIO.FromMemoryLoader <> CML.ToScarchPadIO
     CSPad_1.ScarchPadIO.FromMemoryLoader <> CML.ToScarchPadIO
-    when(TaskCtrl.ConfigInfo.bits.ScaratchpadChosen.CMemoryLoaderChosenIndex === 0.U)
+    when(TaskCtrl.TaskCtrlInfo.ScaratchpadChosen.CMemoryLoaderChosenIndex === 0.U)
     {
         //TODO:改ScarchPad内的处理逻辑。
         CSPad_0.ScarchPadIO.MemoryLoaderValid := true.B
+        CML.ToScarchPadIO.ReadWriteResponse := CSPad_0.ScarchPadIO.FromMemoryLoader.ReadWriteResponse
+        CSPad_0.ScarchPadIO.FromMemoryLoader <> CML.ToScarchPadIO
         CSPad_1.ScarchPadIO.MemoryLoaderValid := false.B
+        CSPad_1.ScarchPadIO.FromMemoryLoader.ReadWriteRequest := 0.U
+        CSPad_1.ScarchPadIO.FromMemoryLoader.WriteRequestToScarchPad.BankAddr.valid := false.B
+        CSPad_1.ScarchPadIO.FromMemoryLoader.WriteRequestToScarchPad.Data.valid := false.B
     }.otherwise{
         CSPad_0.ScarchPadIO.MemoryLoaderValid := false.B
+        CSPad_0.ScarchPadIO.FromMemoryLoader.ReadWriteRequest := 0.U
+        CSPad_0.ScarchPadIO.FromMemoryLoader.WriteRequestToScarchPad.BankAddr.valid := false.B
+        CSPad_0.ScarchPadIO.FromMemoryLoader.WriteRequestToScarchPad.Data.valid := false.B
         CSPad_1.ScarchPadIO.MemoryLoaderValid := true.B
+        CML.ToScarchPadIO.ReadWriteResponse := CSPad_1.ScarchPadIO.FromMemoryLoader.ReadWriteResponse
+        CSPad_1.ScarchPadIO.FromMemoryLoader <> CML.ToScarchPadIO
     }
     CML.ConfigInfo.bits := TaskCtrl.ConfigInfo.bits
     CML.ConfigInfo.valid := TaskCtrl.ConfigInfo.valid
@@ -180,9 +211,12 @@ class CUTEV2Top(implicit p: Parameters) extends Module with HWParameters{
     CML.LocalMMUIO <> MMU.CLocalMMUIO
     MMU.Config := TaskCtrl.ConfigInfo.bits.MMUConfig
     io.ctrl2top <> TaskCtrl.ygjkctrl //指令宏码送入，taskctrl指令微码送出到各个模块，做到可配可能需要一个大模块做控制，其他小模块能从不同LLCnode发出访存请求的设计
-    TaskCtrl.TaskCtrlInfo.ADC := DontCare
-    TaskCtrl.TaskCtrlInfo.BDC := DontCare
-    TaskCtrl.TaskCtrlInfo.CDC := DontCare
+    TaskCtrl.TaskCtrlInfo.ADC.TaskEnd <> ADC.TaskEnd
+    TaskCtrl.TaskCtrlInfo.BDC.TaskEnd <> BDC.TaskEnd
+    TaskCtrl.TaskCtrlInfo.CDC.TaskEnd <> CDC.TaskEnd
+    TaskCtrl.TaskCtrlInfo.ADC.ComputeEnd <> ADC.CaculateEnd
+    TaskCtrl.TaskCtrlInfo.BDC.ComputeEnd <> BDC.CaculateEnd
+    TaskCtrl.TaskCtrlInfo.CDC.ComputeEnd <> CDC.CaculateEnd
     TaskCtrl.TaskCtrlInfo.AML.LoadEnd <> AML.MemoryLoadEnd
     TaskCtrl.TaskCtrlInfo.BML.LoadEnd <> BML.MemoryLoadEnd
     TaskCtrl.TaskCtrlInfo.CML.LoadEnd <> CML.MemoryLoadEnd

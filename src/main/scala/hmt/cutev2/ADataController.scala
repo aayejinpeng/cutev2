@@ -17,21 +17,21 @@ class ADataController(implicit p: Parameters) extends Module with HWParameters{
         val FromScarchPadIO = Flipped(new ADataControlScaratchpadIO)
         val ConfigInfo = Flipped(DecoupledIO(new ConfigInfoIO))
         val VectorA = DecoupledIO(UInt((ReduceWidth*Matrix_M).W))
-        val SwitchScarchPad = DecoupledIO(Bool())
+        val CaculateEnd = DecoupledIO(Bool())
         val TaskEnd = Flipped(DecoupledIO(Bool()))
     })
 
     //TODO:init
     io.VectorA.valid := false.B
-    io.VectorA.bits := DontCare
+    io.VectorA.bits := 0.U
     io.ConfigInfo.ready := false.B
     io.TaskEnd.ready := false.B
-    io.SwitchScarchPad.bits := false.B
-    io.SwitchScarchPad.valid := false.B
+    io.CaculateEnd.bits := false.B
+    io.CaculateEnd.valid := false.B
     io.FromScarchPadIO.Chosen := false.B
 
     val ScarchPadRequestBankAddr = io.FromScarchPadIO.BankAddr
-    ScarchPadRequestBankAddr.bits := DontCare
+    ScarchPadRequestBankAddr.bits := 0.U.asTypeOf(ScarchPadRequestBankAddr.bits)
     ScarchPadRequestBankAddr.valid := false.B
     val ScarchPadData = io.FromScarchPadIO.Data //1周期的延迟
     val ScarchPadChosen = io.FromScarchPadIO.Chosen
@@ -51,14 +51,22 @@ class ADataController(implicit p: Parameters) extends Module with HWParameters{
 
 
 
-    
+    //输出state
+    when(io.ConfigInfo.valid)
+    {
+        printf("[ADataController]ADataController: state is %d\n", state)
+        printf("[ADataController]ADataController: calculate_state is %d\n", calculate_state)
+    }
+
+
     //矩阵乘的状态机
     //如果config是矩阵乘，那么就是矩阵乘的状态机
     when(state === s_idle){
         //TODO:是否要考虑 计算状态机的值？
         when(io.ConfigInfo.valid){
-            when(io.ConfigInfo.bits.taskType === CUTETaskType.TaskTypeMatrixMul){
+            when(io.ConfigInfo.bits.taskType === CUTETaskType.TaskTypeMatrixMul && io.ConfigInfo.bits.ComputeGo === true.B){
                 //阶段0，配置信息就位，开始配置
+                printf("[ADataController]ADataController: ConfigInfo is valid, taskType is MatrixMul, ComputeGo is true\n")
                 state := s_mm_task
                 ScaratchpadWorkingTensor_M := io.ConfigInfo.bits.ScaratchpadTensor_M
                 ScaratchpadWorkingTensor_N := io.ConfigInfo.bits.ScaratchpadTensor_N
@@ -97,10 +105,14 @@ class ADataController(implicit p: Parameters) extends Module with HWParameters{
 
     //TODO:这里是否需要一个这样的除法电路？实际上一个截断/移位电路就可以了？因为我们一定是整数倍的，多余的地方补0即可。
     //如果是除法电路，这里需要几拍？其实不会，Matrix_M一定是2的幂次，所有这个除法一定会被优化成移位，一定是一拍完成的，一定会优化成移位电路
-    val M_IteratorMax = (ScaratchpadWorkingTensor_M / Matrix_M.U) - 1.U
-    val N_IteratorMax = (ScaratchpadWorkingTensor_N / Matrix_N.U) - 1.U
-    val K_IteratorMax = (ScaratchpadWorkingTensor_K) - 1.U
+    val M_IteratorMax = (ScaratchpadWorkingTensor_M / Matrix_M.U)
+    val N_IteratorMax = (ScaratchpadWorkingTensor_N / Matrix_N.U)
+    val K_IteratorMax = (ScaratchpadWorkingTensor_K)
 
+    val Max_Caculate_Iter = M_IteratorMax * N_IteratorMax * K_IteratorMax
+
+    //统计读数请求次数
+    val AVectorCount = RegInit(0.U(32.W))
     //如果是mm_task,且计算状态机是init，那么就开始初始化
     when(state === s_mm_task){
         when(calculate_state === s_cal_init){
@@ -111,64 +123,49 @@ class ADataController(implicit p: Parameters) extends Module with HWParameters{
             calculate_state := s_cal_working
         }.elsewhen(calculate_state === s_cal_working){
             //阶段2，计算开始，计算对Scarchpad的取数地址
-
+            //输出所有的mnk和maxmnk
+            printf("[ADataController]ADataController: M_Iterator is %d, N_Iterator is %d, K_Iterator is %d\n", M_Iterator, N_Iterator, K_Iterator)
+            printf("[ADataController]ADataController: M_IteratorMax is %d, N_IteratorMax is %d, K_IteratorMax is %d\n", M_IteratorMax, N_IteratorMax, K_IteratorMax)
             //循环的最外层是M，然后是N，最后是K
             val next_addr = Wire(UInt(AScratchpadBankNEntrys.W))
-            when(ScarchPadData.valid){
+            next_addr := M_Iterator * K_IteratorMax + K_Iterator
+            ScarchPadRequestBankAddr.bits.foreach(_ := next_addr)
+            
+            when(AVectorCount < Max_Caculate_Iter){
                 //计算取数地址
-                //TODO:同样的问题，这里是否需要一个乘法电路？估计会被EDA优化成移位电路
-                //TrickTODO:这里可以添加Realse的逻辑了，在Datacontroller和MemoryLoader之间添加一个同步的Realse表
-                next_addr := M_Iterator * K_IteratorMax + K_Iterator + 1.U
-                ScarchPadRequestBankAddr.bits.foreach(_ := next_addr)
                 ScarchPadRequestBankAddr.valid := true.B
-                when(M_Iterator < M_IteratorMax){
-                    when(N_Iterator < N_IteratorMax){
-                        when(K_Iterator < K_IteratorMax){ 
-                            //这里选择使用ScarchPadData.valid作为判断条件，是一个保守，且能处理ScarchPadData的bank冲突的时机
-                            K_Iterator := K_Iterator + 1.U
-
-                        }.otherwise{
-                            K_Iterator := 0.U
-                            N_Iterator := N_Iterator + 1.U
-                        }
-                    }.otherwise{
+                K_Iterator := K_Iterator + 1.U
+                when(K_Iterator === K_IteratorMax - 1.U){
+                    K_Iterator := 0.U
+                    N_Iterator := N_Iterator + 1.U
+                    when(N_Iterator === N_IteratorMax - 1.U){
                         N_Iterator := 0.U
                         M_Iterator := M_Iterator + 1.U
                     }
-                }.otherwise{
-                    //阶段3，最后一个数据也已经返回了
-                    calculate_state := s_cal_end
-                    ScarchPadRequestBankAddr.valid := false.B
                 }
             }.otherwise{
-                //计算取数地址
-                //TODO:同样的问题，这里是否需要一个乘法电路？估计会被EDA优化成移位电路
-                next_addr := M_Iterator * K_IteratorMax + K_Iterator
-                ScarchPadRequestBankAddr.bits.foreach(_ := next_addr)
-                ScarchPadRequestBankAddr.valid := true.B
-                //所有寄存器值不变
-                K_Iterator := K_Iterator
-                N_Iterator := N_Iterator
-                M_Iterator := M_Iterator
+                ScarchPadRequestBankAddr.valid := false.B
             }
             //TODO:这里默认AVector是默认握手的，如果不能默认握手，需要一个FIFO缓冲这部分数据
             io.VectorA.valid := ScarchPadData.valid
             io.VectorA.bits := ScarchPadData.bits.asTypeOf(io.VectorA.bits) //这里是顺序摆放，卷积可以重新组合
+            when(io.VectorA.valid)//double buffer，保证了每週期回數
+            {
+                AVectorCount := AVectorCount + 1.U
+                when(AVectorCount === Max_Caculate_Iter - 1.U){
+                    calculate_state := s_cal_end
+                }
+                //输出AVectorCount，VectorA的信息
+                printf("[ADataController]ADataController: AVectorCount is %d\n", AVectorCount)
+            }
         }.elsewhen(calculate_state === s_cal_end){
             //计算结束，要么结束计算，要么切换ScarchPad
-            io.SwitchScarchPad.valid := true.B
-            io.SwitchScarchPad.bits := true.B
-            when(io.TaskEnd.valid){
+            io.CaculateEnd.valid := true.B
+            io.CaculateEnd.bits := true.B
+            printf("[ADataController]ADataController: CaculateEnd is valid\n")
+            when(io.CaculateEnd.fire){
                 state := s_idle
                 calculate_state := s_cal_idle
-                io.TaskEnd.ready := true.B
-                io.SwitchScarchPad.valid := false.B
-                io.SwitchScarchPad.bits := false.B
-            }.otherwise{
-                io.TaskEnd.ready := false.B
-                when(io.SwitchScarchPad.fire){
-                    calculate_state := s_cal_init
-                }
             }
 
         }.elsewhen(calculate_state === s_cal_idle){

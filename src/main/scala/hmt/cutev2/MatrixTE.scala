@@ -34,6 +34,9 @@ class MatrixTE(implicit p: Parameters) extends Module with HWParameters{
             Matrix(i)(j).AddC.valid         := io.MatirxC.valid
             Matrix(i)(j).ConfigInfo.bits    := io.ConfigInfo.bits
             Matrix(i)(j).ConfigInfo.valid   := io.ConfigInfo.valid
+            when(io.VectorA.valid && io.VectorB.valid && io.MatirxC.valid){
+                printf("[MatrixTE]: Matrix(%d)(%d) ReduceA:%x ReduceB:%x AddC:%x\n",i.U,j.U,Matrix(i)(j).ReduceA.bits,Matrix(i)(j).ReduceB.bits,Matrix(i)(j).AddC.bits)
+            }
         }
     }
 
@@ -46,8 +49,21 @@ class MatrixTE(implicit p: Parameters) extends Module with HWParameters{
     }
     //这里asUInt可以将Vec(UInt)转换成UInt
     io.MatrixD.bits := CurrentMatrixD.asUInt
+    io.MatrixD.valid := false.B
     //如果Matrix(i)(j)的每个vali都为true，那么MatrixD的valid才为true
-    io.MatrixD.valid := Matrix.map(_.map(_.ResultD.valid).reduce(_&&_)).reduce(_&&_)
+    val YJP_valid_count = RegInit(0.U(2.W))
+    val YJP_Count_number = RegInit(0.U(32.W))
+    when(io.VectorA.valid && io.VectorB.valid){
+        YJP_valid_count := YJP_valid_count + 1.U
+        YJP_Count_number := YJP_Count_number + 1.U
+        when(YJP_valid_count === 3.U){
+            io.MatrixD.bits := YJP_Count_number
+            io.MatrixD.valid := true.B
+        }.otherwise{
+            io.MatrixD.valid := false.B
+        }
+    }
+    // io.MatrixD.valid := Matrix.map(_.map(_.ResultD.valid).reduce(_&&_)).reduce(_&&_)
 
     //TODO:注意，这里的ready可以不用这么判断，我们所有PE是锁步的，能保证所有PE的数据同时到达，所以只要考察一个PE即可
     //确定所有的ready信号

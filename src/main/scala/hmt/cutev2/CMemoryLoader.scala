@@ -181,11 +181,11 @@ class CMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
         when(MemoryOrder_LoadConfig === MemoryOrderType.OrderType_Mb_Nb)
         {
             //输出head和tial
-            printf("[CMemoryLoader]FromMemoryLoaderReadFIFOHead: %x, FromMemoryLoaderReadFIFOTail: %x\n", FromMemoryLoaderReadFIFOHead, FromMemoryLoaderReadFIFOTail)
-            //输出FIFO的状态
-            printf("[CMemoryLoader]FromMemoryLoaderReadFIFOFull: %x, FromMemoryLoaderReadFIFOEmpty: %x\n", FromMemoryLoaderReadFIFOFull, FromMemoryLoaderReadFIFOEmpty)
-            //输出safeFULL
-            printf("[CMemoryLoader]SafeFromMemoryLoaderReadFIFOFull: %x\n", SafeFromMemoryLoaderReadFIFOFull)
+            // printf("[CMemoryLoader]FromMemoryLoaderReadFIFOHead: %x, FromMemoryLoaderReadFIFOTail: %x\n", FromMemoryLoaderReadFIFOHead, FromMemoryLoaderReadFIFOTail)
+            // //输出FIFO的状态
+            // printf("[CMemoryLoader]FromMemoryLoaderReadFIFOFull: %x, FromMemoryLoaderReadFIFOEmpty: %x\n", FromMemoryLoaderReadFIFOFull, FromMemoryLoaderReadFIFOEmpty)
+            // //输出safeFULL
+            // printf("[CMemoryLoader]SafeFromMemoryLoaderReadFIFOFull: %x\n", SafeFromMemoryLoaderReadFIFOFull)
             //只要Request是ready，我们发出的访存请求就会被MMU送往总线，我们可以发出下一个访存请求
             //TODO:注意所有的乘法电路的代价，和EDA存在的优化的可能性
             //担心乘法电路延迟，可以提前几个周期将乘法结果算好
@@ -230,7 +230,7 @@ class CMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
             ReadRequest.bits.RequestType_isWrite := false.B
             ReadRequest.valid := !SafeFromMemoryLoaderReadFIFOFull && (TotalRequestSize < MaxRequestIter.U)
             //输出valid和fifofull
-            printf("[CMemoryLoader]ReadRequestValid: %x, FromMemoryLoaderReadFIFOFull: %x\n", ReadRequest.valid, SafeFromMemoryLoaderReadFIFOFull)
+            // printf("[CMemoryLoader]ReadRequestValid: %x, FromMemoryLoaderReadFIFOFull: %x\n", ReadRequest.valid, SafeFromMemoryLoaderReadFIFOFull)
             //输出ReadRequest、maxRequestIter、TotalRequestSize、RequestScratchpadBankId、CurrentBankID、CurrentFIFOIndex
             // printf("[CMemoryLoader]ReadRequest: %x, MaxRequestIter: %x, TotalRequestSize: %x, RequestScratchpadBankId: %x, CurrentBankID: %x, CurrentFIFOIndex: %x\n", ReadRequest.bits.RequestVirtualAddr, MaxRequestIter.U, TotalRequestSize, RequestScratchpadBankId, CurrentBankID, CurrentFIFOIndex)
             
@@ -249,15 +249,15 @@ class CMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
                     FromMemoryLoaderReadFIFOHead := WrapInc(FromMemoryLoaderReadFIFOHead, CMemoryLoaderReadFromMemoryFIFODepth)
                 }
                 //输出发出的访存请求
-                printf("[CMemoryLoader]RequestVirtualAddr: %x, RequestSourceID: %x, RequestConherent: %x, RequestType_isWrite: %x\n", ReadRequest.bits.RequestVirtualAddr, ReadRequest.bits.RequestSourceID, ReadRequest.bits.RequestConherent, ReadRequest.bits.RequestType_isWrite)
+                // printf("[CMemoryLoader]RequestVirtualAddr: %x, RequestSourceID: %x, RequestConherent: %x, RequestType_isWrite: %x\n", ReadRequest.bits.RequestVirtualAddr, ReadRequest.bits.RequestSourceID, ReadRequest.bits.RequestConherent, ReadRequest.bits.RequestType_isWrite)
                 //输出这次请求的TableItem
-                printf("[CMemoryLoader]TableItem: %x, %x, %x\n", TableItem.ScratchpadBankId, TableItem.ScratchpadAddr, TableItem.FIFOIndex)
+                // printf("[CMemoryLoader]TableItem: %x, %x, %x\n", TableItem.ScratchpadBankId, TableItem.ScratchpadAddr, TableItem.FIFOIndex)
 
                 //只要这条取数指令可以被发出，就计算下一个访存请求的地址
                 //TODO:这里数据读取量定死了，需要为了支持边界情况，改一改
                 //不过我们保证了数据是256bit对齐的～剩下的就是Tensor_M和Tensor_K不满足的情况思考好就行了
                 //输出request的次数
-                printf("[CMemoryLoader]TotalRequestSize: %x\n", TotalRequestSize)
+                // printf("[CMemoryLoader]TotalRequestSize: %x\n", TotalRequestSize)
                 when(TotalRequestSize === (MaxRequestIter).U){
                     //assert!
                     //error!
@@ -276,7 +276,7 @@ class CMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
             val FIFOIndex = SoureceIdSearchTable(sourceId).asTypeOf(new CSourceIdSearch).FIFOIndex
             val ResponseData = io.LocalMMUIO.Response.bits.ReseponseData
             //输出localmmuio回的数据
-            printf("[CMemoryLoader]ResponseData: %x, ScratchpadBankId: %x, ScratchpadAddr: %x, FIFOIndex: %x\n", ResponseData, ScratchpadBankId, ScratchpadAddr, FIFOIndex)
+            // printf("[CMemoryLoader]ResponseData: %x, ScratchpadBankId: %x, ScratchpadAddr: %x, FIFOIndex: %x\n", ResponseData, ScratchpadBankId, ScratchpadAddr, FIFOIndex)
             FromMemoryLoaderReadFIFO(FIFOIndex)(ScratchpadBankId) := ResponseData
             FromMemoryLoaderReadFIFOValid(FIFOIndex)(ScratchpadBankId) := true.B
         }
@@ -312,7 +312,8 @@ class CMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
 
         //修改io.ToScarchPadIO.ReadWriteRequest的特定位为1
         HasScarhpadWrite := true.B
-
+        //输出io.ToScarchPadIO.ReadWriteResponse
+        printf("[CMemoryLoader]ReadWriteResponse: %x\n", io.ToScarchPadIO.ReadWriteResponse)
         when(io.ToScarchPadIO.ReadWriteResponse(ScaratchpadTaskType.WriteFromMemoryLoaderIndex) === true.B){
             //根据ScartchPad的仲裁结果，我们可以写入数据了
             val ScarchPadWriteRequest = io.ToScarchPadIO.WriteRequestToScarchPad
@@ -471,8 +472,6 @@ class CMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
                     printf("[CMemoryLoader]TotalStoreSize: %d  FireTimes := %d\n", TotalStoreSize, FireTimes)
                 }
             }
-
-            
         }
     }.elsewhen(memorystore_state === s_store_end){
         memorystore_state := s_store_end

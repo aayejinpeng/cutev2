@@ -91,7 +91,7 @@ class CUTE2TLImp(outer: Cute2TL) extends LazyModuleImp(outer) with HWParameters{
   //只要有请求，就输出一共有有多少个infligt的请求
   when(io.mmu.Request.valid || io.mmu.Response.valid){
     //统计busy，一共有多少个在飞行中的请求,及有多少个ture.B
-    printf("[CUTE2YGJK.node]busy: %d\n", busy.count(_ === true.B))
+    // printf("[CUTE2YGJK.node]busy: %d\n", busy.count(_ === true.B))
   }
 
   when(tl_out.d.fire){
