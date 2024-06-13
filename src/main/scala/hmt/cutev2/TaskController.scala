@@ -260,18 +260,18 @@ class TaskController(implicit p: Parameters) extends Module with HWParameters{
             io.TaskCtrlInfo.ScaratchpadChosen.BMemoryLoaderChosenIndex := 1.U
             io.TaskCtrlInfo.ScaratchpadChosen.CMemoryLoaderChosenIndex := 1.U
             //用A0B0C0算，存C0
-            io.TaskCtrlInfo.ADC.ComputeEnd.ready := true.B
-            io.TaskCtrlInfo.BDC.ComputeEnd.ready := true.B
-            io.TaskCtrlInfo.CDC.ComputeEnd.ready := true.B
-            io.TaskCtrlInfo.ADC.TaskEnd.valid := true.B
-            io.TaskCtrlInfo.BDC.TaskEnd.valid := true.B
-            io.TaskCtrlInfo.CDC.TaskEnd.valid := true.B
-            io.TaskCtrlInfo.ADC.TaskEnd.bits := true.B
-            io.TaskCtrlInfo.BDC.TaskEnd.bits := true.B
-            io.TaskCtrlInfo.CDC.TaskEnd.bits := true.B
             when(io.TaskCtrlInfo.CDC.ComputeEnd.valid === true.B && io.TaskCtrlInfo.BDC.ComputeEnd.valid === true.B && io.TaskCtrlInfo.ADC.ComputeEnd.valid === true.B)
             {
 
+                io.TaskCtrlInfo.ADC.ComputeEnd.ready := true.B
+                io.TaskCtrlInfo.BDC.ComputeEnd.ready := true.B
+                io.TaskCtrlInfo.CDC.ComputeEnd.ready := true.B
+                io.TaskCtrlInfo.ADC.TaskEnd.valid := true.B
+                io.TaskCtrlInfo.BDC.TaskEnd.valid := true.B
+                io.TaskCtrlInfo.CDC.TaskEnd.valid := true.B
+                io.TaskCtrlInfo.ADC.TaskEnd.bits := true.B
+                io.TaskCtrlInfo.BDC.TaskEnd.bits := true.B
+                io.TaskCtrlInfo.CDC.TaskEnd.bits := true.B
                 io.TaskCtrlInfo.ScaratchpadChosen.ADataControllerChosenIndex := 1.U
                 io.TaskCtrlInfo.ScaratchpadChosen.BDataControllerChosenIndex := 1.U
                 io.TaskCtrlInfo.ScaratchpadChosen.CDataControllerChosenIndex := 1.U

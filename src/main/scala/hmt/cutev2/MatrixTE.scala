@@ -19,7 +19,7 @@ class MatrixTE(implicit p: Parameters) extends Module with HWParameters{
     })
 
     //实例化ReducePE
-    val Matrix = VecInit.tabulate(Matrix_M, Matrix_N){(x,y) => Module(new ReducePE).io}
+    val Matrix = VecInit.tabulate(Matrix_M, Matrix_N){(x,y) => Module(new ReducePE(x*4+y)).io}
 
     //直接驱动ReducePE的输入
     //接下来给每个ReducePE的输入进行赋值
@@ -49,20 +49,20 @@ class MatrixTE(implicit p: Parameters) extends Module with HWParameters{
     }
     //这里asUInt可以将Vec(UInt)转换成UInt
     io.MatrixD.bits := CurrentMatrixD.asUInt
-    io.MatrixD.valid := false.B
+    io.MatrixD.valid := Matrix(0)(0).ResultD.valid
     //如果Matrix(i)(j)的每个vali都为true，那么MatrixD的valid才为true
-    val YJP_valid_count = RegInit(0.U(2.W))
-    val YJP_Count_number = RegInit(0.U(32.W))
-    when(io.VectorA.valid && io.VectorB.valid){
-        YJP_valid_count := YJP_valid_count + 1.U
-        YJP_Count_number := YJP_Count_number + 1.U
-        when(YJP_valid_count === 3.U){
-            io.MatrixD.bits := YJP_Count_number
-            io.MatrixD.valid := true.B
-        }.otherwise{
-            io.MatrixD.valid := false.B
-        }
-    }
+    // val YJP_valid_count = RegInit(0.U(2.W))
+    // val YJP_Count_number = RegInit(0.U(32.W))
+    // when(io.VectorA.valid && io.VectorB.valid){
+    //     YJP_valid_count := YJP_valid_count + 1.U
+    //     YJP_Count_number := YJP_Count_number + 1.U
+    //     when(YJP_valid_count === 3.U){
+    //         io.MatrixD.bits := YJP_Count_number
+    //         io.MatrixD.valid := true.B
+    //     }.otherwise{
+    //         io.MatrixD.valid := false.B
+    //     }
+    // }
     // io.MatrixD.valid := Matrix.map(_.map(_.ResultD.valid).reduce(_&&_)).reduce(_&&_)
 
     //TODO:注意，这里的ready可以不用这么判断，我们所有PE是锁步的，能保证所有PE的数据同时到达，所以只要考察一个PE即可
@@ -96,6 +96,10 @@ class MatrixTE(implicit p: Parameters) extends Module with HWParameters{
 
     //核心问题就是向量和矩阵算力的配比～～
     //向量算力和矩阵算力的配比，就是在roofline图上，找的那个说得通的点，证明我们的设计是合理的～
+
+    //算的时候，reducePE可以对256的数据进行n种不同的计算，256/8 = 32。
+    //这个(32,32)元素，送到PE里，可以得到(1,1)，(2,2)，(4,4)等的结果，影响ResultWidth的宽度，这会导致CScratchPad的访存带宽相应的提升
+    //ResultWidth比较宽，导致CScratchpad宽度过宽，比如(4,4)的就需要(4*4)(4*4)*32bit,4096bit的读写，但是C有个好处就是不需要每周期都读写4096，可以花4个周期读，再画4个周期写。这样就是要求ExternalK必须大于4+4(单读写口的话)，也就是对于张量来说最小是(4+4)(8)。张量是16*16*64的张量。
 
 
 

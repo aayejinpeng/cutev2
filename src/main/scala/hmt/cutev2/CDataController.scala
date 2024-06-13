@@ -148,17 +148,18 @@ class CDataController(implicit p: Parameters) extends Module with HWParameters{
             //阶段2，计算开始，计算对Scarchpad的取数地址
 
             //循环的最外层是M，然后是N
-            val next_addr = Wire(UInt(CScratchpadBankNEntrys.W))
+            val load_addr = Wire(UInt(CScratchpadBankNEntrys.W))
             val store_addr = RegInit(0.U(CScratchpadBankNEntrys.W))
             io.FromScarchPadIO.ReadBankAddr.valid := false.B
             
-            next_addr := M_Iterator * N_IteratorMax + N_Iterator
+            load_addr := M_Iterator * N_IteratorMax + N_Iterator
             when(CVectorCount < Max_Caculate_Iter){
                 //计算取数地址
                 when(K_Iterator === 0.U)
                 {
                     ReadRequest := true.B
                     io.FromScarchPadIO.ReadBankAddr.valid := true.B
+                    io.FromScarchPadIO.ReadBankAddr.bits.map(_ := load_addr)
                 }
                 K_Iterator := K_Iterator + 1.U
                 when(K_Iterator === K_IteratorMax - 1.U){
@@ -198,7 +199,7 @@ class CDataController(implicit p: Parameters) extends Module with HWParameters{
             //计算结束，要么结束计算，要么切换ScarchPad
             io.CaculateEnd.valid := true.B
             io.CaculateEnd.bits := true.B
-            printf("[CDataController]CDataController: CaculateEnd is %d\n", io.CaculateEnd.bits)
+            printf("[CDataController]CDataController: CaculateEnd is valid\n")
             when(io.CaculateEnd.ready){
                 state := s_idle
                 calculate_state := s_cal_idle
@@ -221,7 +222,7 @@ class CDataController(implicit p: Parameters) extends Module with HWParameters{
     val request = Wire(new ScaratchpadTask)
     request.ReadFromMemoryLoader := false.B
     request.WriteFromMemoryLoader := false.B
-    request.WriteFromDataController := WriteRequset
+    request.WriteFromDataController := Mux(ReadRequest===true.B,false.B,WriteRequset)
     request.ReadFromDataController := ReadRequest
     io.FromScarchPadIO.ReadWriteRequest := request.asUInt
     

@@ -313,7 +313,7 @@ class CMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
         //修改io.ToScarchPadIO.ReadWriteRequest的特定位为1
         HasScarhpadWrite := true.B
         //输出io.ToScarchPadIO.ReadWriteResponse
-        printf("[CMemoryLoader]ReadWriteResponse: %x\n", io.ToScarchPadIO.ReadWriteResponse)
+        // printf("[CMemoryLoader]ReadWriteResponse: %x\n", io.ToScarchPadIO.ReadWriteResponse)
         when(io.ToScarchPadIO.ReadWriteResponse(ScaratchpadTaskType.WriteFromMemoryLoaderIndex) === true.B){
             //根据ScartchPad的仲裁结果，我们可以写入数据了
             val ScarchPadWriteRequest = io.ToScarchPadIO.WriteRequestToScarchPad
